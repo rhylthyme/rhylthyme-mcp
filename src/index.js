@@ -1,7 +1,8 @@
 // Rhylthyme MCP Server (Streamable HTTP)
-// Deployed at https://mcp.rhylthyme.com/mcp
-// Uses @vercel/node with mcp-handler
+// Runs standalone (node src/index.js) or as a Vercel serverless function.
+// Production endpoint: https://mcp.rhylthyme.com/mcp
 
+const http = require("http");
 const { z } = require("zod");
 
 const API_BASE = "https://www.rhylthyme.com";
@@ -13,7 +14,7 @@ function getHandler() {
     handlerPromise = (async () => {
       const { createMcpHandler } = await import("mcp-handler");
 
-      const webHandler = createMcpHandler(
+      return createMcpHandler(
         (server) => {
           server.tool(
             "visualize_schedule",
@@ -158,19 +159,17 @@ function getHandler() {
         { serverInfo: { name: "rhylthyme-mcp", version: "1.0.0" } },
         { basePath: "" },
       );
-
-      return webHandler;
     })();
   }
   return handlerPromise;
 }
 
-// Vercel serverless handler — converts Node.js req/res to Web API Request/Response
-module.exports = async function handler(req, res) {
+// Convert Node.js req/res to Web API Request/Response
+async function nodeToWeb(req, res) {
   const webHandler = await getHandler();
 
-  const protocol = req.headers["x-forwarded-proto"] || "https";
-  const host = req.headers["x-forwarded-host"] || req.headers.host || "www.rhylthyme.com";
+  const protocol = req.headers["x-forwarded-proto"] || "http";
+  const host = req.headers["x-forwarded-host"] || req.headers.host || "localhost";
   const url = `${protocol}://${host}${req.url}`;
 
   let body = undefined;
@@ -215,4 +214,16 @@ module.exports = async function handler(req, res) {
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify({ error: e.message || "Internal server error" }));
   }
-};
+}
+
+// Vercel serverless export
+module.exports = nodeToWeb;
+
+// Standalone server when run directly
+if (require.main === module) {
+  const PORT = process.env.PORT || 3000;
+  const server = http.createServer(nodeToWeb);
+  server.listen(PORT, () => {
+    console.log(`Rhylthyme MCP server listening on http://localhost:${PORT}/mcp`);
+  });
+}
