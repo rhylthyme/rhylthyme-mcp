@@ -1,0 +1,26 @@
+{
+  "name": "rhylthyme-mcp",
+  "version": "1.0.0",
+  "description": "MCP server for creating interactive schedule visualizations on rhylthyme.com",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "keywords": [
+    "mcp",
+    "mcp-server",
+    "model-context-protocol",
+    "scheduling",
+    "workflow",
+    "visualization",
+    "gantt",
+    "timeline"
+  ],
+  "author": "Rhylthyme",
+  "license": "MIT",
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.0.0",
+    "mcp-handler": "^0.1.0",
+    "zod": "^3.22.0"
+  }
+}
