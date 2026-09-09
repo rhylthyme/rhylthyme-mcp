@@ -1,5 +1,5 @@
 /*!
- * Rhylthyme timeline-render v1.3.0
+ * Rhylthyme timeline-render v2.0.0-beta.1
  * (c) 2026 Rhylthyme contributors. Released under the Apache License 2.0.
  * Source: https://github.com/rhylthyme/rhylthyme-timeline
  *
@@ -276,7 +276,32 @@
   //
   // A negative afterStep offset ("start 20m before the roast finishes")
   // is honored but never placed before the referenced step starts.
-  function computeStepTimings(program) {
+  //
+  // opts (all optional; used by the player):
+  //   actual: { [stepId]: { start?, end? } }  seconds the executor actually
+  //           started / finished a step; overrides the plan for that step
+  //           and everything downstream.
+  //   now:    current program time in seconds. Steps that need the executor
+  //           to start them (manual gates, negative-offset hand-offs) and
+  //           have no actual start float forward to `now`; started steps
+  //           that need the executor to finish them (indefinite, variable
+  //           with a trigger) stretch to `now`.
+  function stepNeedsStart(step) {
+    return triggersOf(step).some(function (t) {
+      if (!t) return false;
+      if (t.type === 'manual') return true;
+      return (t.type === 'afterStep' || t.type === 'afterStepWithBuffer') && parseSeconds(t.offsetSeconds) < 0;
+    });
+  }
+  function stepNeedsFinish(step) {
+    var d = (step && step.duration) || {};
+    return d.type === 'indefinite' || (d.type === 'variable' && !!d.triggerName);
+  }
+
+  function computeStepTimings(program, opts) {
+    opts = opts || {};
+    var actual = opts.actual || {};
+    var now = (typeof opts.now === 'number' && isFinite(opts.now)) ? opts.now : null;
     program = expandReplicates(program);
     var tracks = (program && program.tracks) || [];
     var allSteps = {};
@@ -355,8 +380,23 @@
         if (out[sid] !== undefined) continue;
         var start = resolve(sid, allSteps[sid].startTrigger);
         if (start !== null && isFinite(start)) {
-          var dur = stepDurationSeconds(allSteps[sid]);
-          out[sid] = { start: start, end: start + dur, duration: dur, trackId: trackOf[sid], resolved: true };
+          var step = allSteps[sid];
+          var a = actual[sid] || {};
+          var dur = stepDurationSeconds(step);
+          var started = typeof a.start === 'number';
+          if (started) start = a.start;
+          else if (now !== null && start < now && stepNeedsStart(step)) start = now;
+          var end;
+          if (typeof a.end === 'number') end = a.end;
+          else {
+            end = start + dur;
+            if (now !== null && started && end < now && stepNeedsFinish(step)) {
+              end = now;
+              var dd = step.duration || {};
+              if (dd.type === 'variable' && dd.maxSeconds !== undefined) end = Math.min(end, start + parseSeconds(dd.maxSeconds));
+            }
+          }
+          out[sid] = { start: start, end: end, duration: end - start, trackId: trackOf[sid], resolved: true };
           progressed = true;
         }
       }
@@ -406,16 +446,26 @@
   //   marks   — hatch indefinite steps, fade variable steps from their
   //             default to their maximum, flag manual gates
   //   legend  — one-line key under the chart
+  // Player options:
+  //   timings — precomputed result of computeStepTimings (e.g. with actual
+  //             times); default: computed here
+  //   now     — current program time in seconds: draws a cursor line and
+  //             extends the axis to cover it
+  //   states  — { [stepId]: 'done' | 'active' | 'waiting' } for bar styling
+  //   width   — SVG width in px (default 820); the chart also scales with
+  //             CSS since it carries a viewBox
   function renderTimelineSvg(program, opts) {
     program = expandReplicates(program || {});
     opts = opts || {};
     var arrows = opts.arrows !== false, marks = opts.marks !== false, legend = opts.legend !== false;
+    var now = (typeof opts.now === 'number' && isFinite(opts.now)) ? opts.now : null;
+    var states = opts.states || {};
     var tracks = (program.tracks || []).filter(function (t) {
       return (t.steps || []).length > 0;
     });
     if (!tracks.length) return '';
 
-    var timings = computeStepTimings(program);
+    var timings = opts.timings || computeStepTimings(program);
     var stepIndex = {}, trackOfStep = {}, rowOfTrack = {};
     tracks.forEach(function (t, ti) {
       rowOfTrack[t.trackId] = ti;
@@ -428,9 +478,10 @@
       if (marks && d && d.type === 'variable' && d.maxSeconds !== undefined) maxEnd = Math.max(maxEnd, timings[sid].start + parseSeconds(d.maxSeconds));
       globalEnd = Math.max(globalEnd, maxEnd);
     }
+    if (now !== null) globalEnd = Math.max(globalEnd, now);
     if (globalEnd <= 0) globalEnd = 1;
 
-    var W = 820;
+    var W = (typeof opts.width === 'number' && opts.width > 300) ? opts.width : 820;
     var H_HEADER = 56;
     var H_TRACK = 46;
     var H_FOOTER = legend ? 62 : 28;
@@ -448,7 +499,7 @@
     var parts = [];
     parts.push(
       '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H
-      + '" viewBox="0 0 ' + W + ' ' + H + '" '
+      + '" viewBox="0 0 ' + W + ' ' + H + '" class="rt-timeline" '
       + 'font-family="-apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif">'
     );
     parts.push('<defs>'
@@ -517,6 +568,8 @@
         var x2 = xOf(tim.end);
         var w = Math.max(2, x2 - x1);
         var opacity = si % 2 === 0 ? 1 : 0.78;
+        var state = states[step.stepId] || '';
+        if (state === 'done') opacity = 0.35;
         var isIndef = marks && d.type === 'indefinite';
         var isVar = marks && d.type === 'variable' && d.maxSeconds !== undefined;
         var isManual = marks && triggersOf(step).some(function (x) { return x && x.type === 'manual'; });
@@ -528,10 +581,14 @@
               + '" height="' + BAR_H + '" fill="' + color + '" opacity="0.3" rx="3" ry="3"/>');
           }
         }
+        var stroke = '';
+        if (state === 'active') stroke = ' stroke="#111827" stroke-width="2.5"';
+        else if (state === 'waiting') stroke = ' stroke="#b91c1c" stroke-width="2" stroke-dasharray="3,3"';
+        else if (isIndef) stroke = ' stroke="#111827" stroke-width="1.5" stroke-dasharray="5,3"';
         parts.push(
-          '<rect x="' + x1.toFixed(1) + '" y="' + barTop(ti) + '" width="' + w.toFixed(1)
+          '<rect class="rt-bar' + (state ? ' rt-' + state : '') + '" data-step="' + esc(step.stepId) + '" x="' + x1.toFixed(1) + '" y="' + barTop(ti) + '" width="' + w.toFixed(1)
           + '" height="' + BAR_H + '" fill="' + color + '" opacity="' + opacity
-          + '" rx="3" ry="3"' + (isIndef ? ' stroke="#111827" stroke-width="1.5" stroke-dasharray="5,3"' : '') + '/>'
+          + '" rx="3" ry="3"' + stroke + '/>'
         );
         if (isIndef) {
           parts.push('<rect x="' + x1.toFixed(1) + '" y="' + barTop(ti) + '" width="' + w.toFixed(1)
@@ -594,6 +651,15 @@
       });
     }
 
+    // Current-time cursor (player).
+    if (now !== null) {
+      var cx = xOf(now);
+      var topY = H_HEADER - 4, botY = H_HEADER + tracks.length * H_TRACK;
+      parts.push('<line class="rt-cursor" x1="' + cx.toFixed(1) + '" y1="' + topY + '" x2="' + cx.toFixed(1) + '" y2="' + botY
+        + '" stroke="#dc2626" stroke-width="2"/>');
+      parts.push('<path d="M' + (cx - 6).toFixed(1) + ',' + (topY - 8) + ' h12 l-6,8 z" fill="#dc2626"/>');
+    }
+
     if (legend) {
       var ly = H - 30;
       var lx = 16;
@@ -629,7 +695,7 @@
   }
 
   return {
-    version: '1.3.0',
+    version: '2.0.0-beta.1',
     // Program schema versions this engine understands; bumped in step
     // with the package's minor version when new trigger/duration forms
     // are added.
@@ -637,6 +703,8 @@
     renderTimeline: renderTimeline,
     renderTimelineSvg: renderTimelineSvg,
     computeStepTimings: computeStepTimings,
+    stepNeedsStart: stepNeedsStart,
+    stepNeedsFinish: stepNeedsFinish,
     expandReplicates: expandReplicates,
     parseSeconds: parseSeconds,
     stepDurationSeconds: stepDurationSeconds
