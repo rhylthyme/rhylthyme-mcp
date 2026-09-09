@@ -155,12 +155,14 @@ test("analyzeSchedule with startAt anchors forwards", () => {
 });
 
 test("validator agrees with the Python validator across the example corpus", () => {
-  // Mirrors tests/test_examples_integration.py expectations: these
-  // examples are known-valid; three known-broken ones are excluded.
+  // Both validators expand replicates before checking, and both reject
+  // the same three programs: two for within-track overlaps and one for
+  // tasks with no resource constraint. Verified against the Python
+  // validator on 2026-09-09.
   const dir = path.join(__dirname, "..", "..", "rhylthyme-examples", "programs");
   if (!fs.existsSync(dir)) return; // examples not checked out alongside
   const knownBroken = new Set([
-    "academy_awards_ceremony.json", "corporate_conference.json",
+    "academy_awards_ceremony.json",
     "software_product_launch.json", "comprehensive_manual_demo.json",
   ]);
   const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json"));
