@@ -1,0 +1,261 @@
+{
+  "schemaVersion": "0.2.0-alpha",
+  "programId": "thanksgiving-one-oven",
+  "name": "Thanksgiving with One Oven",
+  "description": "Turkey, stuffing, mashed potatoes, gravy and a green salad, coordinated around a single oven so that everything reaches the table together.",
+  "environmentType": "kitchen",
+  "actors": 2,
+  "tracks": [
+    {
+      "trackId": "turkey",
+      "name": "Turkey",
+      "steps": [
+        {
+          "stepId": "turkey-prep",
+          "name": "Season and truss",
+          "task": "prep",
+          "duration": {
+            "type": "fixed",
+            "seconds": 1200
+          },
+          "startTrigger": {
+            "type": "programStart"
+          }
+        },
+        {
+          "stepId": "turkey-roast",
+          "name": "Roast until 74°C",
+          "task": "oven",
+          "duration": {
+            "type": "indefinite",
+            "defaultSeconds": 9900
+          },
+          "startTrigger": {
+            "type": "afterStep",
+            "stepId": "turkey-prep"
+          }
+        },
+        {
+          "stepId": "turkey-rest",
+          "name": "Rest",
+          "task": "counter",
+          "duration": {
+            "type": "fixed",
+            "seconds": 1800
+          },
+          "startTrigger": {
+            "type": "afterStep",
+            "stepId": "turkey-roast"
+          }
+        },
+        {
+          "stepId": "turkey-carve",
+          "name": "Carve and serve",
+          "task": "prep",
+          "duration": {
+            "type": "fixed",
+            "seconds": 600
+          },
+          "startTrigger": {
+            "type": "afterStep",
+            "stepId": "guests-seated"
+          }
+        }
+      ]
+    },
+    {
+      "trackId": "stuffing",
+      "name": "Stuffing",
+      "steps": [
+        {
+          "stepId": "stuffing-prep",
+          "name": "Sauté aromatics, mix",
+          "task": "stove",
+          "duration": {
+            "type": "fixed",
+            "seconds": 1500
+          },
+          "startTrigger": {
+            "type": "programStartOffset",
+            "offsetSeconds": 5400
+          }
+        },
+        {
+          "stepId": "stuffing-bake",
+          "name": "Bake stuffing",
+          "task": "oven",
+          "duration": {
+            "type": "fixed",
+            "seconds": 2100
+          },
+          "startTrigger": {
+            "type": "afterStep",
+            "stepId": "turkey-roast"
+          }
+        }
+      ]
+    },
+    {
+      "trackId": "potatoes",
+      "name": "Potatoes",
+      "steps": [
+        {
+          "stepId": "potatoes-peel",
+          "name": "Peel and cut",
+          "task": "prep",
+          "duration": {
+            "type": "fixed",
+            "seconds": 900
+          },
+          "startTrigger": {
+            "type": "afterStep",
+            "stepId": "turkey-roast",
+            "offsetSeconds": -2700
+          }
+        },
+        {
+          "stepId": "potatoes-boil",
+          "name": "Boil until tender",
+          "task": "stove",
+          "duration": {
+            "type": "variable",
+            "minSeconds": 900,
+            "maxSeconds": 1500,
+            "defaultSeconds": 1200
+          },
+          "startTrigger": {
+            "type": "afterStep",
+            "stepId": "potatoes-peel"
+          }
+        },
+        {
+          "stepId": "potatoes-mash",
+          "name": "Mash with butter",
+          "task": "prep",
+          "duration": {
+            "type": "fixed",
+            "seconds": 600
+          },
+          "startTrigger": {
+            "type": "afterStep",
+            "stepId": "potatoes-boil"
+          }
+        }
+      ]
+    },
+    {
+      "trackId": "gravy",
+      "name": "Gravy",
+      "steps": [
+        {
+          "stepId": "gravy-make",
+          "name": "Make gravy from drippings",
+          "task": "stove",
+          "duration": {
+            "type": "fixed",
+            "seconds": 900
+          },
+          "startTrigger": {
+            "type": "afterStep",
+            "stepId": "turkey-roast",
+            "offsetSeconds": 300
+          }
+        }
+      ]
+    },
+    {
+      "trackId": "service",
+      "name": "Service",
+      "steps": [
+        {
+          "stepId": "salad",
+          "name": "Dress the salad",
+          "task": "prep",
+          "duration": {
+            "type": "fixed",
+            "seconds": 300
+          },
+          "startTrigger": {
+            "type": "afterStep",
+            "stepId": "stuffing-bake",
+            "event": "start",
+            "offsetSeconds": 1500
+          }
+        },
+        {
+          "stepId": "guests-seated",
+          "name": "Guests seated",
+          "task": "host",
+          "duration": {
+            "type": "fixed",
+            "seconds": 300
+          },
+          "startTrigger": {
+            "type": "manual",
+            "triggerName": "guests-seated"
+          }
+        },
+        {
+          "stepId": "serve",
+          "name": "Serve",
+          "task": "host",
+          "duration": {
+            "type": "fixed",
+            "seconds": 300
+          },
+          "startTrigger": {
+            "logic": "all",
+            "triggers": [
+              {
+                "type": "afterStep",
+                "stepId": "turkey-carve"
+              },
+              {
+                "type": "afterStep",
+                "stepId": "stuffing-bake"
+              },
+              {
+                "type": "afterStep",
+                "stepId": "potatoes-mash"
+              },
+              {
+                "type": "afterStep",
+                "stepId": "gravy-make"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ],
+  "resourceConstraints": [
+    {
+      "task": "oven",
+      "maxConcurrent": 1,
+      "description": "One oven"
+    },
+    {
+      "task": "stove",
+      "maxConcurrent": 4,
+      "description": "Four burners"
+    },
+    {
+      "task": "prep",
+      "maxConcurrent": 2,
+      "description": "Counter space for two"
+    },
+    {
+      "task": "counter",
+      "maxConcurrent": 1,
+      "description": "Resting board"
+    },
+    {
+      "task": "host",
+      "maxConcurrent": 1,
+      "description": "Whoever is hosting"
+    }
+  ],
+  "metadata": {
+    "serves": "8"
+  }
+}

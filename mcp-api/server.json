@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-09-29/server.schema.json",
+  "name": "com.rhylthyme/rhylthyme",
+  "description": "Real-time multi-track scheduling: validate, analyze and publish live timelines for cooking, lab protocols, event run-of-shows and workouts.",
+  "title": "Rhylthyme",
+  "version": "1.3.0",
+  "websiteUrl": "https://www.rhylthyme.com",
+  "repository": {
+    "url": "https://github.com/rhylthyme/rhylthyme-mcp",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.rhylthyme.com/mcp"
+    }
+  ]
+}

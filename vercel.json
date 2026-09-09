@@ -1,0 +1,14 @@
+{
+  "version": 2,
+  "builds": [
+    { "src": "mcp-api/index.js", "use": "@vercel/node", "config": { "maxDuration": 60 } }
+  ],
+  "rewrites": [
+    { "source": "/mcp", "destination": "/mcp-api" },
+    { "source": "/kitchen/mcp", "destination": "/mcp-api" },
+    { "source": "/lab/mcp", "destination": "/mcp-api" },
+    { "source": "/events/mcp", "destination": "/mcp-api" },
+    { "source": "/gym/mcp", "destination": "/mcp-api" },
+    { "source": "/api/og/timeline.png", "destination": "/mcp-api" }
+  ]
+}

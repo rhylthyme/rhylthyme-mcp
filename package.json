@@ -1,10 +1,11 @@
 {
   "name": "rhylthyme-mcp",
-  "version": "1.0.0",
-  "description": "MCP server for creating interactive schedule visualizations on rhylthyme.com",
+  "version": "1.3.0",
+  "description": "Rhylthyme MCP server: validate, analyze, import and publish human-executed, resource-constrained schedules as Model Context Protocol tools. Streamable HTTP; hosted at mcp.rhylthyme.com.",
   "main": "src/index.js",
   "scripts": {
-    "start": "node src/index.js"
+    "start": "node src/index.js",
+    "test": "node --test mcp-api/*.test.js"
   },
   "keywords": [
     "mcp",
@@ -12,15 +13,27 @@
     "model-context-protocol",
     "scheduling",
     "workflow",
-    "visualization",
     "gantt",
-    "timeline"
+    "timeline",
+    "recipes",
+    "lab-protocols"
   ],
-  "author": "Rhylthyme",
+  "author": "Jeremy Leipzig",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rhylthyme/rhylthyme-mcp.git"
+  },
+  "homepage": "https://github.com/rhylthyme/rhylthyme-mcp#readme",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.0",
-    "mcp-handler": "^0.1.0",
-    "zod": "^3.22.0"
+    "@modelcontextprotocol/sdk": "^1.25.2",
+    "mcp-handler": "^1.0.7",
+    "zod": "^4.3.6"
+  },
+  "optionalDependencies": {
+    "@resvg/resvg-js": "^2.6.2"
   }
 }
