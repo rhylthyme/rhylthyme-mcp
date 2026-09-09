@@ -1,5 +1,5 @@
 /*!
- * Rhylthyme timeline-render v1.2.0
+ * Rhylthyme timeline-render v1.3.0
  * (c) 2026 Rhylthyme contributors. Released under the Apache License 2.0.
  * Source: https://github.com/rhylthyme/rhylthyme-timeline
  *
@@ -31,6 +31,10 @@
  *       Returns { stepId: { start, end, duration, trackId, resolved } }
  *       in seconds from program start. `resolved` is false when the
  *       step's trigger could not be satisfied (cycle / dangling ref).
+ *
+ *   Rhylthyme.expandReplicates(program)
+ *       Expand track/step `replicates` (and legacy batch_size/stagger) into
+ *       flat tracks; applied automatically by the functions above.
  *
  *   Rhylthyme.parseSeconds(value)
  *       Number | "90" | "5m" | "1h30m" | "-20m" -> seconds (number).
@@ -102,11 +106,13 @@
 
   // Planning duration for a step. Fixed: seconds. Variable: default,
   // else max, else min. Indefinite: defaultSeconds if the author gave
-  // one, otherwise 0 (the live runner waits for a manual trigger).
+  // one, otherwise a 60 s placeholder (matches the Python validator; the
+  // live runner waits for the executor regardless).
   function stepDurationSeconds(step) {
     var d = (step && step.duration) || {};
     if (typeof d === 'string' || typeof d === 'number') return Math.max(0, parseSeconds(d));
     var v;
+    if (d.type === 'indefinite' && (d.defaultSeconds === undefined || d.defaultSeconds === null)) return 60;
     if (d.seconds !== undefined && d.seconds !== null) v = parseSeconds(d.seconds);
     else if (d.defaultSeconds !== undefined && d.defaultSeconds !== null) v = parseSeconds(d.defaultSeconds);
     else if (d.maxSeconds !== undefined && d.maxSeconds !== null) v = parseSeconds(d.maxSeconds);
@@ -115,6 +121,142 @@
     else if (d.hours !== undefined) v = parseSeconds(d.hours) * 3600;
     else v = 0;
     return Math.max(0, v || 0);
+  }
+
+
+  // ---------- Replicate expansion --------------------------------------
+  //
+  // Port of rhylthyme.expand_replicates (Python). Expands `replicates` on
+  // tracks and steps, and legacy `batch_size`/`stagger` on tracks, into
+  // flat tracks and steps BEFORE timing resolution, so this engine and the
+  // Python validator see the same program. Pure: returns a deep copy.
+  function _clone(x) { return JSON.parse(JSON.stringify(x)); }
+  var _REF_TYPES = { afterStep: 1, afterStepWithBuffer: 1, onAbort: 1 };
+
+  function _suffixTriggerRefs(trigger, suffix, originalIds) {
+    if (!trigger) return;
+    if (Array.isArray(trigger.triggers)) {
+      trigger.triggers.forEach(function (sub) { _suffixTriggerRefs(sub, suffix, originalIds); });
+    } else if (_REF_TYPES[trigger.type] && originalIds[trigger.stepId]) {
+      trigger.stepId = trigger.stepId + suffix;
+    }
+  }
+
+  function _remapTrigger(trigger, remap) {
+    if (!trigger) return;
+    if (Array.isArray(trigger.triggers)) {
+      var out = [];
+      trigger.triggers.forEach(function (sub) {
+        var ref = sub && sub.stepId;
+        if (sub && _REF_TYPES[sub.type] && Object.prototype.hasOwnProperty.call(remap, ref)) {
+          var rep = remap[ref];
+          if (rep && rep._join) rep.stepIds.forEach(function (sid) { out.push({ type: 'afterStep', stepId: sid }); });
+          else { var c = _clone(sub); c.stepId = rep; out.push(c); }
+        } else {
+          var c2 = _clone(sub); _remapTrigger(c2, remap); out.push(c2);
+        }
+      });
+      trigger.triggers = out;
+      return;
+    }
+    if (_REF_TYPES[trigger.type] && Object.prototype.hasOwnProperty.call(remap, trigger.stepId)) {
+      var r = remap[trigger.stepId];
+      if (r && r._join) {
+        var joins = r.stepIds.map(function (sid) { return { type: 'afterStep', stepId: sid }; });
+        Object.keys(trigger).forEach(function (k) { delete trigger[k]; });
+        trigger.logic = 'all'; trigger.triggers = joins;
+      } else {
+        trigger.stepId = r;
+      }
+    }
+  }
+
+  function _needsExpansion(program) {
+    return (program.tracks || []).some(function (t) {
+      return t.replicates || t.batch_size > 1 || (t.steps || []).some(function (s) { return s && s.replicates; });
+    });
+  }
+
+  function expandReplicates(program) {
+    if (!program || !_needsExpansion(program)) return program;
+    program = _clone(program);
+    // Phase 1: legacy batch_size / stagger -> replicates.
+    (program.tracks || []).forEach(function (t) {
+      if (t.replicates) return;
+      var n = t.batch_size || 1;
+      if (n <= 1) return;
+      var stagger = parseSeconds(t.stagger !== undefined ? t.stagger : (t.stagger_seconds || 0));
+      t.replicates = stagger > 0 ? { count: n, mode: 'stagger', delay: stagger } : { count: n, mode: 'parallel' };
+      delete t.batch_size; delete t.stagger; delete t.stagger_seconds;
+    });
+    // Phase 2: track-level replicates.
+    var tracks = [];
+    (program.tracks || []).forEach(function (t) {
+      var rep = t.replicates;
+      if (!rep || (rep.count || 1) <= 1) { var tc = _clone(t); delete tc.replicates; tracks.push(tc); return; }
+      var count = rep.count, mode = rep.mode || 'parallel', delay = parseSeconds(rep.delay || 0);
+      var originalIds = {};
+      (t.steps || []).forEach(function (s) { originalIds[s.stepId] = 1; });
+      for (var i = 0; i < count; i++) {
+        var suffix = '-r' + (i + 1);
+        var rt = _clone(t); delete rt.replicates;
+        rt.trackId = t.trackId + suffix;
+        rt.name = t.name + ' (' + (i + 1) + ' of ' + count + ')';
+        rt.steps = (t.steps || []).map(function (s) {
+          var c = _clone(s); c.stepId = s.stepId + suffix; _suffixTriggerRefs(c.startTrigger, suffix, originalIds); return c;
+        });
+        if (mode === 'stagger' && i > 0 && delay > 0 && rt.steps.length) {
+          var first = rt.steps[0], trig = first.startTrigger || {}, type = trig.type || 'programStart';
+          if (type === 'programStart') first.startTrigger = { type: 'programStartOffset', offsetSeconds: delay * i };
+          else if (type === 'programStartOffset') first.startTrigger = { type: 'programStartOffset', offsetSeconds: parseSeconds(trig.offsetSeconds || 0) + delay * i };
+        } else if (mode === 'serial' && i > 0 && rt.steps.length) {
+          rt.steps[0].startTrigger = { type: 'afterStep', stepId: t.steps[t.steps.length - 1].stepId + '-r' + i };
+        }
+        tracks.push(rt);
+      }
+    });
+    program.tracks = tracks;
+    // Phase 3: step-level replicates.
+    var newTracks = [], remap = {};
+    program.tracks.forEach(function (t) {
+      var has = (t.steps || []).some(function (s) { return s.replicates && (s.replicates.count || 1) > 1; });
+      if (!has) { var tc = _clone(t); (tc.steps || []).forEach(function (s) { delete s.replicates; }); newTracks.push(tc); return; }
+      var expanded = [], subTracks = [];
+      (t.steps || []).forEach(function (s) {
+        var rep = s.replicates;
+        if (!rep || (rep.count || 1) <= 1) { var sc = _clone(s); delete sc.replicates; _remapTrigger(sc.startTrigger, remap); expanded.push(sc); return; }
+        var count = rep.count, mode = rep.mode || 'parallel', delay = parseSeconds(rep.delay || 0);
+        if (mode === 'serial') {
+          for (var j = 0; j < count; j++) {
+            var cs = _clone(s); delete cs.replicates;
+            cs.stepId = s.stepId + '-r' + (j + 1); cs.name = s.name + ' (' + (j + 1) + ' of ' + count + ')';
+            if (j === 0) _remapTrigger(cs.startTrigger, remap);
+            else cs.startTrigger = { type: 'afterStep', stepId: s.stepId + '-r' + j };
+            expanded.push(cs);
+          }
+          remap[s.stepId] = s.stepId + '-r' + count;
+        } else {
+          var lastIds = [];
+          for (var k = 0; k < count; k++) {
+            var cp = _clone(s); delete cp.replicates;
+            cp.stepId = s.stepId + '-r' + (k + 1); cp.name = s.name + ' (' + (k + 1) + ' of ' + count + ')';
+            _remapTrigger(cp.startTrigger, remap);
+            if (mode === 'stagger' && k > 0 && delay > 0) {
+              var tr = cp.startTrigger || {}; tr.offsetSeconds = parseSeconds(tr.offsetSeconds || 0) + delay * k; cp.startTrigger = tr;
+            }
+            subTracks.push({ trackId: t.trackId + '--' + s.stepId + '-r' + (k + 1), name: (t.name || t.trackId) + ' - ' + s.name + ' (' + (k + 1) + ' of ' + count + ')', steps: [cp] });
+            lastIds.push(cp.stepId);
+          }
+          remap[s.stepId] = { _join: true, stepIds: lastIds };
+        }
+      });
+      var tcopy = _clone(t); tcopy.steps = expanded; newTracks.push(tcopy);
+      subTracks.forEach(function (st) { newTracks.push(st); });
+    });
+    newTracks = newTracks.filter(function (t) { return (t.steps || []).length > 0; });
+    newTracks.forEach(function (t) { t.steps.forEach(function (s) { _remapTrigger(s.startTrigger, remap); }); });
+    program.tracks = newTracks;
+    return program;
   }
 
   // ---------- Step timing resolution -------------------------------------
@@ -135,6 +277,7 @@
   // A negative afterStep offset ("start 20m before the roast finishes")
   // is honored but never placed before the referenced step starts.
   function computeStepTimings(program) {
+    program = expandReplicates(program);
     var tracks = (program && program.tracks) || [];
     var allSteps = {};
     var trackOf = {};
@@ -264,7 +407,7 @@
   //             default to their maximum, flag manual gates
   //   legend  — one-line key under the chart
   function renderTimelineSvg(program, opts) {
-    program = program || {};
+    program = expandReplicates(program || {});
     opts = opts || {};
     var arrows = opts.arrows !== false, marks = opts.marks !== false, legend = opts.legend !== false;
     var tracks = (program.tracks || []).filter(function (t) {
@@ -486,7 +629,7 @@
   }
 
   return {
-    version: '1.2.0',
+    version: '1.3.0',
     // Program schema versions this engine understands; bumped in step
     // with the package's minor version when new trigger/duration forms
     // are added.
@@ -494,6 +637,7 @@
     renderTimeline: renderTimeline,
     renderTimelineSvg: renderTimelineSvg,
     computeStepTimings: computeStepTimings,
+    expandReplicates: expandReplicates,
     parseSeconds: parseSeconds,
     stepDurationSeconds: stepDurationSeconds
   };

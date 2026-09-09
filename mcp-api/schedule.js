@@ -25,7 +25,7 @@
 
 const TimelineRender = require("../static/js/timeline-render.js");
 
-const { computeStepTimings, parseSeconds, stepDurationSeconds } = TimelineRender;
+const { computeStepTimings, parseSeconds, stepDurationSeconds, expandReplicates } = TimelineRender;
 
 const SINGLE_TRIGGER_TYPES = new Set([
   "programStart", "programStartOffset", "afterStep", "afterStepWithBuffer",
@@ -73,6 +73,9 @@ function validateProgram(program) {
     err("not_an_object", "Program must be a JSON object.", null, "Pass the full program JSON, not a string or array.");
     return { valid: false, errors, warnings, stats: null };
   }
+  // Expand replicates first, as the Python validator does, so ids,
+  // overlaps and timings are checked on the program that will run.
+  program = expandReplicates(program);
 
   // Top-level fields.
   if (!program.programId || typeof program.programId !== "string") {
@@ -346,6 +349,7 @@ function _parseIso(v) {
 
 function analyzeSchedule(program, opts) {
   opts = opts || {};
+  program = expandReplicates(program || {});
   const tracks = Array.isArray(program && program.tracks) ? program.tracks : [];
   const timings = computeStepTimings(program || {});
   const stepMeta = {};
@@ -537,6 +541,7 @@ function formatValidation(v) {
 
 module.exports = {
   validateProgram,
+  expandReplicates,
   analyzeSchedule,
   formatAnalysis,
   formatValidation,

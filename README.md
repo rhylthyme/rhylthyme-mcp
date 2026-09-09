@@ -132,7 +132,7 @@ Durations: `fixed`, `variable` (ended early by the executor), `indefinite`
 ```bash
 git clone https://github.com/rhylthyme/rhylthyme-mcp
 cd rhylthyme-mcp
-npm install
+npm install            # Node 20 or newer
 npm test                 # SDK in-memory + HTTP entry-point tests, no network
 PORT=3000 npm start      # http://localhost:3000/mcp and the four vertical paths
 ```

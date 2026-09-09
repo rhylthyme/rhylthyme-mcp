@@ -26,7 +26,7 @@
   },
   "homepage": "https://github.com/rhylthyme/rhylthyme-mcp#readme",
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.25.2",
