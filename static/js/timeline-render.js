@@ -1,5 +1,5 @@
 /*!
- * Rhylthyme timeline-render v2.0.0-beta.1
+ * Rhylthyme timeline-render v2.0.0-beta.2
  * (c) 2026 Rhylthyme contributors. Released under the Apache License 2.0.
  * Source: https://github.com/rhylthyme/rhylthyme-timeline
  *
@@ -503,8 +503,10 @@
       + 'font-family="-apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif">'
     );
     parts.push('<defs>'
-      + '<marker id="rt-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">'
-      + '<path d="M0,0 L10,5 L0,10 z" fill="#374151"/></marker>'
+      + '<marker id="rt-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">'
+      + '<path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/></marker>'
+      + '<filter id="rt-shadow" x="-5%" y="-20%" width="110%" height="150%">'
+      + '<feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#000000" flood-opacity="0.18"/></filter>'
       + '<pattern id="rt-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
       + '<rect width="6" height="6" fill="#ffffff" fill-opacity="0"/><line x1="0" y1="0" x2="0" y2="6" stroke="#ffffff" stroke-opacity="0.55" stroke-width="2"/></pattern>'
       + '</defs>');
@@ -534,12 +536,17 @@
     else if (globalEnd <= 90 * 60) tickInterval = 15 * 60;
     else if (globalEnd <= 180 * 60) tickInterval = 30 * 60;
     else tickInterval = 60 * 60;
+    var rowsBottom = H_HEADER + tracks.length * H_TRACK;
     for (var t = 0; t <= globalEnd; t += tickInterval) {
       var x = xOf(t);
       parts.push(
         '<line x1="' + x.toFixed(1) + '" y1="' + (axisY - 4) + '" x2="' + x.toFixed(1)
         + '" y2="' + axisY + '" stroke="#9ca3af" stroke-width="1"/>'
       );
+      if (t > 0) {
+        parts.push('<line x1="' + x.toFixed(1) + '" y1="' + (axisY + 1) + '" x2="' + x.toFixed(1)
+          + '" y2="' + rowsBottom + '" stroke="#e5e7eb" stroke-width="1"/>');
+      }
       parts.push(
         '<text x="' + x.toFixed(1) + '" y="' + (axisY - 8) + '" font-size="10" '
         + 'fill="#6b7280" text-anchor="middle">' + fmtMin(t) + '</text>'
@@ -554,11 +561,11 @@
       var trackLabel = trackName.length > 18 ? trackName.slice(0, 16) + '…' : trackName;
       parts.push(
         '<text x="' + (PAD_LEFT - 8) + '" y="' + (barMid(ti) + 4)
-        + '" font-size="12" fill="#374151" text-anchor="end">' + esc(trackLabel) + '</text>'
+        + '" font-size="12" font-weight="600" fill="#374151" text-anchor="end">' + esc(trackLabel) + '</text>'
       );
       parts.push(
         '<rect x="' + PAD_LEFT + '" y="' + (y + 4) + '" width="' + BAR_W
-        + '" height="' + (H_TRACK - 8) + '" fill="#ffffff" stroke="#e5e7eb"/>'
+        + '" height="' + (H_TRACK - 8) + '" fill="#ffffff" fill-opacity="0.6" stroke="#e5e7eb"/>'
       );
       (track.steps || []).forEach(function (step, si) {
         var tim = timings[step.stepId];
@@ -578,21 +585,21 @@
           var xMax = xOf(tim.start + parseSeconds(d.maxSeconds));
           if (xMax > x2 + 1) {
             parts.push('<rect x="' + x2.toFixed(1) + '" y="' + barTop(ti) + '" width="' + (xMax - x2).toFixed(1)
-              + '" height="' + BAR_H + '" fill="' + color + '" opacity="0.3" rx="3" ry="3"/>');
+              + '" height="' + BAR_H + '" fill="' + color + '" opacity="0.3" rx="5" ry="5"/>');
           }
         }
-        var stroke = '';
+        var stroke = ' stroke="#ffffff" stroke-width="1.5"';
         if (state === 'active') stroke = ' stroke="#111827" stroke-width="2.5"';
         else if (state === 'waiting') stroke = ' stroke="#b91c1c" stroke-width="2" stroke-dasharray="3,3"';
         else if (isIndef) stroke = ' stroke="#111827" stroke-width="1.5" stroke-dasharray="5,3"';
         parts.push(
           '<rect class="rt-bar' + (state ? ' rt-' + state : '') + '" data-step="' + esc(step.stepId) + '" x="' + x1.toFixed(1) + '" y="' + barTop(ti) + '" width="' + w.toFixed(1)
           + '" height="' + BAR_H + '" fill="' + color + '" opacity="' + opacity
-          + '" rx="3" ry="3"' + stroke + '/>'
+          + '" rx="5" ry="5" filter="url(#rt-shadow)"' + stroke + '/>'
         );
         if (isIndef) {
           parts.push('<rect x="' + x1.toFixed(1) + '" y="' + barTop(ti) + '" width="' + w.toFixed(1)
-            + '" height="' + BAR_H + '" fill="url(#rt-hatch)" rx="3" ry="3"/>');
+            + '" height="' + BAR_H + '" fill="url(#rt-hatch)" rx="5" ry="5"/>');
         }
         if (isManual) {
           // Hand-off flag: a small white triangle at the left edge.
@@ -610,7 +617,7 @@
           parts.push(
             '<text x="' + (x1 + w / 2 + (isManual ? 6 : 0)).toFixed(1) + '" y="' + (barMid(ti) + 4)
             + '" font-size="11" fill="#ffffff" text-anchor="middle" '
-            + 'font-weight="500">' + esc(display) + '</text>'
+            + 'font-weight="600">' + esc(display) + '</text>'
           );
         }
       });
@@ -634,18 +641,35 @@
             var neg = parseSeconds(tr.offsetSeconds) < 0;
             var xFrom = xOf(fromT), xTo = xOf(tim.start);
             var yFrom = barMid(rowOfTrack[refTrack]), yTo = barMid(ti);
-            var dir = yTo > yFrom ? 1 : -1;
-            var yLeave = yFrom + dir * (BAR_H / 2 + 1);
-            var yEnter = yTo - dir * (BAR_H / 2 + 1);
-            // Vertical drop from the anchor, horizontal run, vertical arrival.
-            // Stagger the horizontal run so arrows into the same row do not overprint.
-            var yMid = yEnter - dir * (5 + 4 * (arrowCount++ % 3));
-            var path = 'M' + xFrom.toFixed(1) + ',' + yLeave.toFixed(1)
-              + ' L' + xFrom.toFixed(1) + ',' + yMid.toFixed(1)
-              + ' L' + xTo.toFixed(1) + ',' + yMid.toFixed(1)
-              + ' L' + xTo.toFixed(1) + ',' + yEnter.toFixed(1);
-            parts.push('<path d="' + path + '" fill="none" stroke="#374151" stroke-width="1.3"'
-              + (neg ? ' stroke-dasharray="4,3"' : '') + ' marker-end="url(#rt-arrow)"/>');
+            // Leave the referenced bar at its anchor edge, arrive at the left
+            // edge of the dependent bar, as a smooth S-curve (cubic Bezier)
+            // in the style of the web player. The horizontal reach of the
+            // control points grows with the distance so short hops stay
+            // tight and long ones sweep.
+            var dx = xTo - xFrom;
+            var xEnd = xTo - 3;
+            var path;
+            if (dx >= 40) {
+              // Forward hop: leave to the right, arrive from the left.
+              var reach = Math.max(28, Math.min(120, dx * 0.6));
+              path = 'M' + xFrom.toFixed(1) + ',' + yFrom.toFixed(1)
+                + ' C' + (xFrom + reach).toFixed(1) + ',' + yFrom.toFixed(1)
+                + ' ' + (xEnd - reach).toFixed(1) + ',' + yTo.toFixed(1)
+                + ' ' + xEnd.toFixed(1) + ',' + yTo.toFixed(1);
+            } else {
+              // Near-vertical or backward hop (a negative offset): leave the
+              // bar's bottom or top edge and drop into the target's edge.
+              var dir = yTo > yFrom ? 1 : -1;
+              var y0 = yFrom + dir * (BAR_H / 2 + 1), y1 = yTo - dir * (BAR_H / 2 + 1);
+              var reachY = Math.max(12, Math.abs(y1 - y0) * 0.5);
+              path = 'M' + xFrom.toFixed(1) + ',' + y0.toFixed(1)
+                + ' C' + xFrom.toFixed(1) + ',' + (y0 + dir * reachY).toFixed(1)
+                + ' ' + xTo.toFixed(1) + ',' + (y1 - dir * reachY).toFixed(1)
+                + ' ' + xTo.toFixed(1) + ',' + y1.toFixed(1);
+            }
+            arrowCount++;
+            parts.push('<path class="rt-edge" d="' + path + '" fill="none" stroke="#6b7280" stroke-width="1.5" stroke-linecap="round"'
+              + (neg ? ' stroke-dasharray="5,4"' : '') + ' marker-end="url(#rt-arrow)"/>');
           });
         });
       });
@@ -668,8 +692,8 @@
         parts.push('<text x="' + (x + 20) + '" y="' + (ly + 4) + '" font-size="10" fill="#4b5563">' + esc(label) + '</text>');
         return x + 20 + label.length * 5.2 + 16;
       }
-      lx = key(lx, function (x, y) { return '<path d="M' + x + ',' + y + ' h14" stroke="#374151" stroke-width="1.3" marker-end="url(#rt-arrow)"/>'; }, 'dependency');
-      lx = key(lx, function (x, y) { return '<path d="M' + x + ',' + y + ' h14" stroke="#374151" stroke-width="1.3" stroke-dasharray="4,3" marker-end="url(#rt-arrow)"/>'; }, 'negative offset');
+      lx = key(lx, function (x, y) { return '<path d="M' + x + ',' + (y + 4) + ' C' + (x + 8) + ',' + (y + 4) + ' ' + (x + 6) + ',' + (y - 4) + ' ' + (x + 14) + ',' + (y - 4) + '" fill="none" stroke="#6b7280" stroke-width="1.5" marker-end="url(#rt-arrow)"/>'; }, 'dependency');
+      lx = key(lx, function (x, y) { return '<path d="M' + x + ',' + (y + 4) + ' C' + (x + 8) + ',' + (y + 4) + ' ' + (x + 6) + ',' + (y - 4) + ' ' + (x + 14) + ',' + (y - 4) + '" fill="none" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#rt-arrow)"/>'; }, 'negative offset');
       lx = key(lx, function (x, y) { return '<rect x="' + x + '" y="' + (y - 6) + '" width="14" height="12" fill="#9ca3af" stroke="#111827" stroke-width="1.2" stroke-dasharray="4,2" rx="2"/>'; }, 'indefinite (ends when the executor says)');
       lx = key(lx, function (x, y) { return '<rect x="' + x + '" y="' + (y - 6) + '" width="7" height="12" fill="#9ca3af" rx="2"/><rect x="' + (x + 7) + '" y="' + (y - 6) + '" width="7" height="12" fill="#9ca3af" opacity="0.3" rx="2"/>'; }, 'variable (default → max)');
       lx = key(lx, function (x, y) { return '<path d="M' + x + ',' + (y - 6) + ' l9,6 l-9,6 z" fill="#ffffff" stroke="#111827" stroke-width="1"/>'; }, 'manual gate');
@@ -695,7 +719,7 @@
   }
 
   return {
-    version: '2.0.0-beta.1',
+    version: '2.0.0-beta.2',
     // Program schema versions this engine understands; bumped in step
     // with the package's minor version when new trigger/duration forms
     // are added.
