@@ -1,5 +1,5 @@
 /*!
- * Rhylthyme timeline-render v2.0.0-beta.2
+ * Rhylthyme timeline-render v2.0.0-beta.3
  * (c) 2026 Rhylthyme contributors. Released under the Apache License 2.0.
  * Source: https://github.com/rhylthyme/rhylthyme-timeline
  *
@@ -694,9 +694,9 @@
       }
       lx = key(lx, function (x, y) { return '<path d="M' + x + ',' + (y + 4) + ' C' + (x + 8) + ',' + (y + 4) + ' ' + (x + 6) + ',' + (y - 4) + ' ' + (x + 14) + ',' + (y - 4) + '" fill="none" stroke="#6b7280" stroke-width="1.5" marker-end="url(#rt-arrow)"/>'; }, 'dependency');
       lx = key(lx, function (x, y) { return '<path d="M' + x + ',' + (y + 4) + ' C' + (x + 8) + ',' + (y + 4) + ' ' + (x + 6) + ',' + (y - 4) + ' ' + (x + 14) + ',' + (y - 4) + '" fill="none" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="5,4" marker-end="url(#rt-arrow)"/>'; }, 'negative offset');
-      lx = key(lx, function (x, y) { return '<rect x="' + x + '" y="' + (y - 6) + '" width="14" height="12" fill="#9ca3af" stroke="#111827" stroke-width="1.2" stroke-dasharray="4,2" rx="2"/>'; }, 'indefinite (ends when the executor says)');
-      lx = key(lx, function (x, y) { return '<rect x="' + x + '" y="' + (y - 6) + '" width="7" height="12" fill="#9ca3af" rx="2"/><rect x="' + (x + 7) + '" y="' + (y - 6) + '" width="7" height="12" fill="#9ca3af" opacity="0.3" rx="2"/>'; }, 'variable (default → max)');
-      lx = key(lx, function (x, y) { return '<path d="M' + x + ',' + (y - 6) + ' l9,6 l-9,6 z" fill="#ffffff" stroke="#111827" stroke-width="1"/>'; }, 'manual gate');
+      lx = key(lx, function (x, y) { return '<rect x="' + x + '" y="' + (y - 6) + '" width="14" height="12" fill="#9ca3af" stroke="#111827" stroke-width="1.2" stroke-dasharray="4,2" rx="2"/>'; }, 'indefinite');
+      lx = key(lx, function (x, y) { return '<rect x="' + x + '" y="' + (y - 6) + '" width="7" height="12" fill="#9ca3af" rx="2"/><rect x="' + (x + 7) + '" y="' + (y - 6) + '" width="7" height="12" fill="#9ca3af" opacity="0.3" rx="2"/>'; }, 'variable');
+      lx = key(lx, function (x, y) { return '<path d="M' + x + ',' + (y - 6) + ' l9,6 l-9,6 z" fill="#ffffff" stroke="#111827" stroke-width="1"/>'; }, 'manual');
     }
 
     // Footer brand mark
@@ -719,7 +719,7 @@
   }
 
   return {
-    version: '2.0.0-beta.2',
+    version: '2.0.0-beta.3',
     // Program schema versions this engine understands; bumped in step
     // with the package's minor version when new trigger/duration forms
     // are added.
