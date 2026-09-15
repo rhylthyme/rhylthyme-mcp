@@ -1,0 +1,894 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$comment": "W3C Time Ontology (OWL-Time) alignment: https://www.w3.org/TR/owl-time/ — namespace prefix time: = http://www.w3.org/2006/time#",
+  "title": "Real-Time Program Schema",
+  "description": "A schema for describing real-time schedules with tracks, steps, and resource constraints",
+  "type": "object",
+  "anyOf": [
+    {
+      "required": ["programId", "name", "tracks", "resourceConstraints"],
+      "not": {
+        "anyOf": [
+          { "required": ["environment"] },
+          { "required": ["environmentType"] }
+        ]
+      }
+    },
+    {
+      "required": ["programId", "name", "tracks", "environment"],
+      "properties": { "environment": { "type": "string" } }
+    },
+    {
+      "required": ["programId", "name", "tracks", "environmentType"],
+      "properties": { "environmentType": { "type": "string" } }
+    }
+  ],
+  "properties": {
+    "schemaVersion": {
+      "type": "string",
+      "description": "Version of the Rhylthyme schema this program conforms to (e.g., '0.3.0-alpha'). Programs declaring '0.1.0', '0.2.0' or '0.2.0-alpha' remain valid against this schema; 'instances' on step-referencing triggers requires '0.3.0-alpha'",
+      "default": "0.3.0-alpha"
+    },
+    "programId": {
+      "type": "string",
+      "description": "Unique identifier for the program"
+    },
+    "name": {
+      "type": "string",
+      "description": "Human-readable name for the program"
+    },
+    "description": {
+      "type": "string",
+      "description": "Detailed description of the program"
+    },
+    "version": {
+      "type": "string",
+      "description": "Program version number"
+    },
+    "environment": {
+      "type": "string",
+      "description": "Reference to environment definition file or ID"
+    },
+    "environmentType": {
+      "type": "string",
+      "description": "Type of environment this program is designed for (e.g., 'kitchen', 'laboratory', 'bakery')"
+    },
+    "actors": {
+      "type": "integer",
+      "minimum": 1,
+      "default": 1,
+      "description": "Number of actors (e.g., cooks in a kitchen) that limits maxConcurrent for any task without an explicit constraint"
+    },
+    "duration": {
+      "type": "object",
+      "$comment": "time:hasTemporalDuration — the program is a time:ProperInterval with a known duration (time:Duration)",
+      "description": "Fixed duration constraint for the entire program",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "seconds"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["fixed"],
+              "description": "Program has a fixed duration"
+            },
+            "seconds": {
+              "type": "number",
+              "minimum": 0,
+              "description": "Total program duration in seconds"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "timeString"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["fixed"],
+              "description": "Program has a fixed duration"
+            },
+            "timeString": {
+              "type": "string",
+              "description": "Total program duration as a time string (e.g., '3h30m', '2h15m30s')"
+            }
+          }
+        }
+      ]
+    },
+    "startTrigger": {
+      "type": "object",
+      "description": "Defines how the program starts",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "time"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["absolute"],
+              "description": "Program starts at a specific time"
+            },
+            "time": {
+              "type": "string",
+              "format": "date-time",
+              "description": "ISO 8601 formatted date-time for program start"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "offsetSeconds"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["offset"],
+              "description": "Program starts after an offset from a reference time"
+            },
+            "offsetSeconds": {
+              "type": ["number", "string"],
+              "description": "Offset in seconds from reference time. Can be a number or a string with time units (e.g., '1m30s', '1h')"
+            },
+            "referenceEvent": {
+              "type": "string",
+              "description": "Optional reference event ID. If not provided, offset is from program creation time"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["manual"],
+              "description": "Program starts when manually triggered"
+            },
+            "triggerName": {
+              "type": "string",
+              "description": "Optional name for the manual trigger"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "time"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["startTime"],
+              "description": "Program is scheduled for a specific time of day (manually triggered, with time-of-day labels)"
+            },
+            "time": {
+              "type": "string",
+              "description": "Time of day in 24h (HH:MM) or 12h (h:MM AM/PM) format, e.g. '14:30' or '2:30 PM'"
+            }
+          }
+        }
+      ]
+    },
+    "tracks": {
+      "type": "array",
+      "$comment": "Each track is a time:ProperInterval; parallel tracks relate via Allen's interval algebra (e.g. time:intervalOverlaps, time:intervalDuring). The program time:intervalContains each track",
+      "description": "Parallel execution tracks within the program",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["trackId", "name", "steps"],
+        "properties": {
+          "trackId": {
+            "type": "string",
+            "description": "Unique identifier for the track"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable name for the track"
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed description of the track"
+          },
+          "batch_size": {
+            "type": "integer",
+            "minimum": 1,
+            "default": 1,
+            "description": "Number of iterations for this track type (e.g., 10 orders of eggs)"
+          },
+          "stagger": {
+            "type": ["number", "string"],
+            "description": "Time delay between each batch instance when batch_size > 1. Can be a number (seconds) or a string with units (e.g., '1m30s', '1h20m')"
+          },
+          "stagger_seconds": {
+            "type": "number",
+            "minimum": 0,
+            "default": 0,
+            "description": "DEPRECATED: Use 'stagger' instead. Time delay in seconds between each batch instance when batch_size > 1"
+          },
+          "replicates": {
+            "$ref": "#/definitions/replicates"
+          },
+          "templateId": {
+            "type": "string",
+            "description": "Optional reference to a track template if this track is an instance of a template"
+          },
+          "templateParameters": {
+            "type": "object",
+            "description": "Parameters to customize this track instance if it's based on a template"
+          },
+          "priority": {
+            "type": "integer",
+            "description": "Track priority for auto-planning (lower number = higher priority, default: 100)",
+            "default": 100,
+            "minimum": 1
+          },
+          "steps": {
+            "type": "array",
+            "$comment": "Sequential steps are time:ProperInterval instances. Within a track, consecutive steps relate by time:intervalMeets (no gap) or time:intervalBefore (with gap). The track time:intervalContains each step",
+            "description": "Sequential steps within this track",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["stepId", "name", "startTrigger"],
+              "properties": {
+                "stepId": {
+                  "type": "string",
+                  "description": "Unique identifier for the step"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "Human-readable name for the step"
+                },
+                "description": {
+                  "type": "string",
+                  "description": "Detailed description of the step"
+                },
+                "priority": {
+                  "type": "integer",
+                  "description": "Priority for resource allocation (lower number = higher priority, default: 100)",
+                  "default": 100
+                },
+                "flex": {
+                  "type": "object",
+                  "$comment": "Adjustable time:Duration — the step's extent can expand within [minDuration, maxDuration] bounds to satisfy temporal constraints",
+                  "description": "Flexible timing settings for the step",
+                  "properties": {
+                    "enabled": {
+                      "type": "boolean",
+                      "description": "Whether this step can be flexibly timed",
+                      "default": false
+                    },
+                    "mode": {
+                      "type": "string",
+                      "enum": ["fill", "max"],
+                      "description": "Flex mode: 'fill' expands to fill gap to next step, 'max' extends to maximum duration",
+                      "default": "fill"
+                    },
+                    "minDuration": {
+                      "type": ["number", "string"],
+                      "minimum": 0,
+                      "description": "Minimum duration for flexible steps. Can be a number (seconds) or a string with time units"
+                    },
+                    "maxDuration": {
+                      "type": ["number", "string"],
+                      "minimum": 0,
+                      "description": "Maximum duration for flexible steps. Can be a number (seconds) or a string with time units"
+                    }
+                  }
+                },
+                "task": {
+                  "type": "string",
+                  "description": "Reference to a resource constraint this step requires"
+                },
+                "tasks": {
+                  "type": "array",
+                  "description": "References to resource constraints this step requires",
+                  "items": {
+                    "type": "string",
+                    "description": "Reference to a resource constraint"
+                  }
+                },
+                "taskResources": {
+                  "type": "array",
+                  "description": "References to resource constraints with fractional usage",
+                  "items": {
+                    "type": "object",
+                    "required": ["name", "fraction"],
+                    "properties": {
+                      "name": {
+                        "type": "string",
+                        "description": "Reference to a resource constraint"
+                      },
+                      "fraction": {
+                        "type": "number",
+                        "minimum": 0,
+                        "maximum": 1,
+                        "description": "Fraction of the resource used (0.0 to 1.0)"
+                      }
+                    }
+                  }
+                },
+                "codeBlock": {
+                  "type": "object",
+                  "description": "Code to execute when the step starts",
+                  "properties": {
+                    "type": {
+                      "type": "string",
+                      "enum": ["python", "shell"],
+                      "description": "Type of code to execute"
+                    },
+                    "code": {
+                      "type": "string",
+                      "description": "The code to execute"
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "Description of what the code does"
+                    }
+                  },
+                  "required": ["type", "code"]
+                },
+                "startTrigger": {
+                  "type": "object",
+                  "$comment": "Defines a time:hasBeginning constraint — the step's start time:Instant is determined by a temporal relation to another interval or an external event",
+                  "description": "Defines how the step starts",
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "$comment": "Compound temporal constraint — 'all' requires conjunction of Allen relations (all must hold simultaneously); 'any' requires disjunction (earliest satisfied relation determines the time:hasBeginning)",
+                      "description": "Multiple start triggers with logical operators",
+                      "required": ["logic", "triggers"],
+                      "properties": {
+                        "logic": {
+                          "type": "string",
+                          "enum": ["all", "any"],
+                          "description": "Logic for multiple triggers: 'all' means ALL triggers must be satisfied, 'any' means ANY ONE trigger can start the step"
+                        },
+                        "triggers": {
+                          "type": "array",
+                          "minItems": 2,
+                          "description": "Array of trigger conditions",
+                          "items": {
+                            "$ref": "#/definitions/singleStartTrigger"
+                          }
+                        }
+                      }
+                    },
+                    {
+                      "$ref": "#/definitions/singleStartTrigger"
+                    }
+                  ]
+                },
+                "duration": {
+                  "type": "object",
+                  "$comment": "time:hasTemporalDuration — the step's duration is a time:Duration (fixed), a bounded time:Duration (variable), or an open-ended time:ProperInterval (indefinite)",
+                  "description": "Defines the duration behavior of the step",
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "required": ["type", "seconds"],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": ["fixed"],
+                          "$comment": "time:Duration with time:numericDuration and time:unitType time:unitSecond",
+                          "description": "Step has a fixed duration"
+                        },
+                        "seconds": {
+                          "type": ["number", "string"],
+                          "minimum": 0,
+                          "$comment": "time:numericDuration — exact extent of the time:Duration",
+                          "description": "Duration. Can be a number (seconds) or a string with time units (e.g., '30s', '5m', '1h')"
+                        },
+                        "calibratedFrom": {
+                          "$ref": "#/definitions/calibratedFrom"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": ["type", "minSeconds", "maxSeconds"],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": ["variable"],
+                          "$comment": "Bounded time:Duration — the actual extent is constrained between minSeconds and maxSeconds",
+                          "description": "Step has a variable duration that can be ended manually"
+                        },
+                        "minSeconds": {
+                          "type": ["number", "string"],
+                          "minimum": 0,
+                          "description": "Minimum duration. Can be a number (seconds) or a string with time units (e.g., '2m', '1h')"
+                        },
+                        "maxSeconds": {
+                          "type": ["number", "string"],
+                          "minimum": 0,
+                          "description": "Maximum duration. Can be a number (seconds) or a string with time units (e.g., '5m', '2h')"
+                        },
+                        "defaultSeconds": {
+                          "type": ["number", "string"],
+                          "minimum": 0,
+                          "description": "Default duration if not manually ended. Can be a number (seconds) or a string with time units (e.g., '3m', '1h30m')"
+                        },
+                        "optimalSeconds": {
+                          "type": ["number", "string"],
+                          "minimum": 0,
+                          "description": "Optimal duration used by the planner for optimization. Can be a number (seconds) or a string with time units (e.g., '2m30s', '1h')"
+                        },
+                        "triggerName": {
+                          "type": "string",
+                          "description": "Optional name for the manual end trigger"
+                        },
+                        "calibratedFrom": {
+                          "$ref": "#/definitions/calibratedFrom"
+                        }
+                      }
+                    },
+                    {
+                      "type": "object",
+                      "required": ["type", "defaultSeconds"],
+                      "properties": {
+                        "type": {
+                          "type": "string",
+                          "enum": ["indefinite"],
+                          "$comment": "time:ProperInterval with time:hasBeginning (known time:Instant) but no determined time:hasEnd — end is an externally triggered time:Instant",
+                          "description": "Step continues until manually ended"
+                        },
+                        "defaultSeconds": {
+                          "type": ["number", "string"],
+                          "minimum": 0,
+                          "description": "Expected duration for timeline display. Can be a number (seconds) or a string with time units (e.g., '5m', '1h')"
+                        },
+                        "triggerName": {
+                          "type": "string",
+                          "description": "Optional name for the manual end trigger"
+                        },
+                        "calibratedFrom": {
+                          "$ref": "#/definitions/calibratedFrom"
+                        }
+                      }
+                    }
+                  ]
+                },
+                "preBuffer": {
+                  "type": "object",
+                  "$comment": "A time:ProperInterval that time:intervalMeets the step — the preBuffer's time:hasEnd equals the step's time:hasBeginning",
+                  "description": "Optional buffer time before the step starts (setup/preparation time)",
+                  "properties": {
+                    "duration": {
+                      "type": ["number", "string"],
+                      "minimum": 0,
+                      "description": "Buffer duration. Can be a number (seconds) or a string with time units (e.g., '30s', '2m')"
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "Description of what happens during the pre-buffer (e.g., 'Equipment setup', 'Room preparation')"
+                    },
+                    "tasks": {
+                      "type": "array",
+                      "description": "Resources required during the pre-buffer period",
+                      "items": {
+                        "type": "string",
+                        "description": "Reference to a resource constraint"
+                      }
+                    },
+                    "taskResources": {
+                      "type": "array",
+                      "description": "Resources with fractional usage during the pre-buffer period",
+                      "items": {
+                        "type": "object",
+                        "required": ["name", "fraction"],
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "description": "Reference to a resource constraint"
+                          },
+                          "fraction": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1,
+                            "description": "Fraction of the resource used (0.0 to 1.0)"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "required": ["duration"]
+                },
+                "postBuffer": {
+                  "type": "object",
+                  "$comment": "A time:ProperInterval that time:intervalMetBy the step — the postBuffer's time:hasBeginning equals the step's time:hasEnd",
+                  "description": "Optional buffer time after the step completes (cleanup/teardown time)",
+                  "properties": {
+                    "duration": {
+                      "type": ["number", "string"],
+                      "minimum": 0,
+                      "description": "Buffer duration. Can be a number (seconds) or a string with time units (e.g., '30s', '2m')"
+                    },
+                    "description": {
+                      "type": "string",
+                      "description": "Description of what happens during the post-buffer (e.g., 'Equipment cleanup', 'Data backup')"
+                    },
+                    "tasks": {
+                      "type": "array",
+                      "description": "Resources required during the post-buffer period",
+                      "items": {
+                        "type": "string",
+                        "description": "Reference to a resource constraint"
+                      }
+                    },
+                    "taskResources": {
+                      "type": "array",
+                      "description": "Resources with fractional usage during the post-buffer period",
+                      "items": {
+                        "type": "object",
+                        "required": ["name", "fraction"],
+                        "properties": {
+                          "name": {
+                            "type": "string",
+                            "description": "Reference to a resource constraint"
+                          },
+                          "fraction": {
+                            "type": "number",
+                            "minimum": 0,
+                            "maximum": 1,
+                            "description": "Fraction of the resource used (0.0 to 1.0)"
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "required": ["duration"]
+                },
+                "metadata": {
+                  "type": "object",
+                  "description": "Additional custom metadata for the step. Recognized convention for the fold view (see rhylthyme.fold_view.program_to_fold): 'fold' set to \"prep\" forces this step to render as a banner prep-note instead of a merge-tree row/op; 'foldLabel' overrides the auto-derived column label for this step's fold-view operation."
+                },
+                "choice": {
+                  "type": "object",
+                  "description": "Defines a choice point where the user selects one of several paths. Downstream steps with a matching choiceId on their afterStep trigger only execute if that choice is selected. The first option is the default if the user does not choose.",
+                  "required": ["options"],
+                  "properties": {
+                    "prompt": {
+                      "type": "string",
+                      "description": "Question or prompt to display to the user (e.g., 'Which protein would you like?')"
+                    },
+                    "options": {
+                      "type": "array",
+                      "minItems": 2,
+                      "description": "Available choices — the first option is the default",
+                      "items": {
+                        "type": "object",
+                        "required": ["choiceId", "label"],
+                        "properties": {
+                          "choiceId": {
+                            "type": "string",
+                            "description": "Unique identifier for this choice option"
+                          },
+                          "label": {
+                            "type": "string",
+                            "description": "Human-readable label for this choice"
+                          }
+                        }
+                      }
+                    }
+                  }
+                },
+                "canAbort": {
+                  "type": "boolean",
+                  "description": "Whether this step can be aborted (default: false)",
+                  "default": false
+                },
+                "replicates": {
+                  "$ref": "#/definitions/replicates"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "resourceConstraints": {
+      "type": "array",
+      "description": "Defines resource constraints for task types",
+      "items": {
+        "type": "object",
+        "required": ["task", "maxConcurrent"],
+        "properties": {
+          "task": {
+            "type": "string",
+            "description": "Identifier for the task type (e.g., 'oven', 'runway')"
+          },
+          "maxConcurrent": {
+            "type": "integer",
+            "minimum": 1,
+            "description": "Maximum number of concurrent steps allowed for this task type"
+          },
+          "description": {
+            "type": "string",
+            "description": "Description of the resource constraint"
+          }
+        }
+      }
+    },
+    "trackTemplates": {
+      "type": "array",
+      "description": "Reusable track templates that can be instantiated multiple times",
+      "items": {
+        "type": "object",
+        "required": ["templateId", "name", "steps"],
+        "properties": {
+          "templateId": {
+            "type": "string",
+            "description": "Unique identifier for the track template"
+          },
+          "name": {
+            "type": "string",
+            "description": "Human-readable name for the track template"
+          },
+          "description": {
+            "type": "string",
+            "description": "Detailed description of the track template"
+          },
+          "parameterSchema": {
+            "type": "object",
+            "description": "JSON Schema defining the parameters this template accepts"
+          },
+          "steps": {
+            "type": "array",
+            "description": "Step definitions for this template, similar to track steps but may include parameter references"
+          }
+        }
+      }
+    },
+    "metadata": {
+      "type": "object",
+      "description": "Additional custom metadata for the program",
+      "properties": {
+        "thumbnail": {
+          "type": "string",
+          "format": "uri-reference",
+          "description": "URL of the program's hero image. May be an absolute URL (e.g. Supabase Storage public URL or external source like TheMealDB) or a relative reference."
+        },
+        "offsetsUse": {
+          "type": "string",
+          "enum": ["planned", "predicted"],
+          "default": "planned",
+          "description": "EXPERIMENTAL. Which duration a runtime resolves a NEGATIVE offset against when the step it is anchored on has not finished yet ('peel the potatoes 45 min before the roast is done'). 'planned' (the default) projects the anchor's end from the author's own number — its defaultSeconds, or its duration when it is fixed. 'predicted' lets the runtime project it from run history instead, but only for an indefinite anchor, only when a prediction exists for it, and only when that prediction is sharper than the guess (its 80% interval is narrower than defaultSeconds); otherwise the planned number is used unchanged. Nothing else in the program is affected: every other trigger, and the whole plan the editor and analyze_schedule show, is computed from the authored durations.",
+          "$comment": "The one place where history changes run-time behaviour (PRD prd-execution-history-duration-prediction \u00a77, plan Phase 7). Kept behind a flag until held-out evaluation (`rhylthyme runs evaluate`) shows prediction beats the guess for the step types in question; a run record says which numbers were used in context.offsetsUse and, per gated step, predictedAnchorSeconds."
+        },
+        "varianceFactors": {
+          "type": "array",
+          "description": "Author-declared variables that plausibly explain how long this program's steps take: turkey weight, oven type, sample count. Runtimes prompt for them once at run start (skippable) and store the answers in a run record's context.userTags, where calibration and prediction can condition on them.",
+          "$comment": "These are the predictor variables in Badosa's sense (Badosa et al. 2019, doi:10.1007/s10766-018-0600-z, \u00a73): the job parameters and data characteristics a history-based predictor regresses actual duration on, selected by correlation with the observed outcome. Declaring a factor does not make it predictive; the inferentiality report (`rhylthyme runs report`) decides that from recorded runs.",
+          "items": {
+            "type": "object",
+            "required": ["key", "type"],
+            "additionalProperties": false,
+            "properties": {
+              "key": {
+                "type": "string",
+                "description": "Identifier the answer is stored under in a run record's context.userTags",
+                "pattern": "^[A-Za-z][A-Za-z0-9_-]*$"
+              },
+              "label": {
+                "type": "string",
+                "description": "Human-readable prompt shown by the runtimes, e.g. 'Turkey weight (kg)'"
+              },
+              "type": {
+                "type": "string",
+                "enum": ["number", "integer", "enum", "string"],
+                "description": "Value domain: number and integer are numeric predictors; enum is one of `values` (one-hot encoded by a predictor); string is recorded but not modelled"
+              },
+              "values": {
+                "type": "array",
+                "description": "Allowed values; required when type is enum and ignored otherwise",
+                "items": { "type": "string" },
+                "minItems": 1
+              },
+              "unit": {
+                "type": "string",
+                "description": "Unit the numeric value is given in, for display only, e.g. 'kg', 'samples'"
+              }
+            },
+            "if": { "properties": { "type": { "const": "enum" } }, "required": ["type"] },
+            "then": { "required": ["values"] }
+          }
+        }
+      }
+    }
+  },
+  "definitions": {
+    "calibratedFrom": {
+      "type": "object",
+      "$comment": "Provenance of a duration proposed from execution history by `rhylthyme calibrate` and accepted by the author (execution-history PRD §6). Calibration itself never writes; this block is written only on acceptance, so a reader can tell a measured number from a guess. `programVersion` is the run records' programVersion — the plan the measurements were taken against — not necessarily the plan that now carries them.",
+      "description": "Provenance of a duration calibrated from recorded runs",
+      "required": ["runs", "asOf"],
+      "properties": {
+        "runs": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of usable measurements the value was computed from"
+        },
+        "asOf": {
+          "type": "string",
+          "description": "When the proposal was accepted, ISO 8601 (e.g. '2026-09-14T12:00:00Z')"
+        },
+        "programVersion": {
+          "type": "string",
+          "pattern": "^sha256:[0-9a-f]{64}$",
+          "description": "Canonical hash of the program the runs were measured against (the run record's programVersion)"
+        }
+      }
+    },
+    "replicates": {
+      "type": "object",
+      "$comment": "Generates multiple time:ProperInterval instances. mode=parallel: all share the same time:hasBeginning (time:intervalStarts). mode=stagger: successive beginnings offset by a time:Duration (time:intervalAfter). mode=serial: each time:intervalMetBy its predecessor",
+      "description": "Replicate this track or step multiple times with configurable execution mode",
+      "properties": {
+        "count": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Number of replicates to create"
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["parallel", "stagger", "serial"],
+          "default": "parallel",
+          "description": "Execution mode: 'parallel' runs all at once, 'stagger' adds delay between starts, 'serial' chains sequentially"
+        },
+        "delay": {
+          "type": ["number", "string"],
+          "description": "Delay between starts for stagger mode. Can be a number (seconds) or a string with time units (e.g., '1m30s', '1h')"
+        },
+        "maxInFlight": {
+          "type": "integer",
+          "minimum": 1,
+          "$comment": "Bounds the number of time:ProperIntervals, each spanning from an instance's time:hasBeginning to the latest time:hasEnd among its paired 'each' descendants, that may time:intervalOverlaps any given time:Instant. Unlike resourceConstraints.maxConcurrent, which bounds occupancy of one task at one instant, this bounds a chain of tasks across time",
+          "description": "Maximum number of instances that may be in flight at once, i.e. started but not yet finished in every instances:\"each\" descendant (the rejoin point). Instance i + maxInFlight cannot start before instance i leaves flight. Must be <= count; omit for unbounded (the pre-0.3.0 behaviour)"
+        }
+      },
+      "required": ["count"]
+    },
+    "singleStartTrigger": {
+      "type": "object",
+      "$comment": "Encodes a temporal relation (Allen's interval algebra) between this step's time:ProperInterval and a reference interval or time:Instant",
+      "description": "A single start trigger condition",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": ["type", "stepId"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["afterStep"],
+              "$comment": "time:intervalMetBy (event=end, no offset) — this step's time:hasBeginning equals the referenced step's time:hasEnd. With offsetSeconds > 0: time:intervalAfter. With event=start: this step's beginning aligns with the referenced step's beginning (time:intervalStarts or time:intervalOverlaps)",
+              "description": "Step starts immediately after another step ends"
+            },
+            "stepId": {
+              "type": "string",
+              "description": "ID of the step that must complete before this one starts"
+            },
+            "event": {
+              "type": "string",
+              "enum": ["start", "end"],
+              "default": "end",
+              "$comment": "Selects which time:Instant of the referenced time:ProperInterval anchors the relation: time:hasEnd (default) or time:hasBeginning",
+              "description": "Whether to trigger after the referenced step's start or end (default: end)"
+            },
+            "offsetSeconds": {
+              "type": ["number", "string"],
+              "description": "Offset in seconds from the referenced step's end (or start if event='start'). Can be negative to start before the referenced step ends — negative offsets require the referenced step to have duration.type='indefinite'. Can be a number or a string with time units (e.g., '5m', '-20m')"
+            },
+            "choiceId": {
+              "type": "string",
+              "description": "If the referenced step has a 'choice' property, this step only executes when the user selects the matching choiceId. Steps without choiceId always execute regardless of the choice."
+            },
+            "instances": {
+              "type": "string",
+              "enum": ["each", "all", "any"],
+              "default": "all",
+              "$comment": "Only meaningful when stepId is a replicated step (or a step already instantiated per instance via 'each'). all: time:intervalAfter the latest time:hasEnd among the instances (a barrier; the default, identical to the implicit 0.2.0 join). each: this step is itself instantiated once per instance, and instance i is time:intervalMetBy instance i of the referenced step (time:intervalAfter with offsetSeconds > 0; event=start anchors on that instance's time:hasBeginning). any: time:intervalAfter the earliest time:hasEnd among the instances",
+              "description": "How a reference to a replicated step fans in (schema 0.3.0-alpha): 'all' (default) waits for every instance to end; 'each' replicates this step once per instance and pairs instance i with instance i, transitively through further 'each' steps; 'any' starts after the first instance ends. Invalid on a step that is not replicated"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "stepId", "bufferSeconds"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["afterStepWithBuffer"],
+              "$comment": "time:intervalAfter — a gap (time:Duration of bufferSeconds) separates the referenced step's time:hasEnd from this step's time:hasBeginning",
+              "description": "Step starts after another step ends plus a buffer time"
+            },
+            "stepId": {
+              "type": "string",
+              "description": "ID of the step that must complete before this one starts"
+            },
+            "event": {
+              "type": "string",
+              "enum": ["start", "end"],
+              "default": "end",
+              "description": "Whether to trigger after the referenced step's start or end (default: end)"
+            },
+            "bufferSeconds": {
+              "type": ["number", "string"],
+              "minimum": 0,
+              "description": "Buffer time after the referenced step. Can be a number (seconds) or a string with time units (e.g., '30s', '2m')"
+            },
+            "instances": {
+              "type": "string",
+              "enum": ["each", "all", "any"],
+              "default": "all",
+              "$comment": "Only meaningful when stepId is a replicated step (or a step already instantiated per instance via 'each'). all: time:intervalAfter the latest time:hasEnd among the instances (a barrier; the default, identical to the implicit 0.2.0 join). each: this step is itself instantiated once per instance, and instance i is time:intervalMetBy instance i of the referenced step (time:intervalAfter, separated by the bufferSeconds time:Duration; event=start anchors on that instance's time:hasBeginning). any: time:intervalAfter the earliest time:hasEnd among the instances",
+              "description": "How a reference to a replicated step fans in (schema 0.3.0-alpha): 'all' (default) waits for every instance to end; 'each' replicates this step once per instance and pairs instance i with instance i, transitively through further 'each' steps; 'any' starts after the first instance ends. Invalid on a step that is not replicated"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["programStart"],
+              "$comment": "This step's time:hasBeginning equals the program's time:hasBeginning (same time:Instant)",
+              "description": "Step starts when the program starts"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "offsetSeconds"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["programStartOffset"],
+              "$comment": "time:intervalAfter the program's time:hasBeginning — a time:Duration of offsetSeconds separates the program start time:Instant from this step's time:hasBeginning",
+              "description": "Step starts after an offset from program start"
+            },
+            "offsetSeconds": {
+              "type": ["number", "string"],
+              "minimum": 0,
+              "description": "Offset from program start. Can be a number (seconds) or a string with time units (e.g., '5m', '1h30m')"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["manual"],
+              "$comment": "This step's time:hasBeginning is an externally determined time:Instant — not derivable from any temporal relation to other intervals",
+              "description": "Step starts when manually triggered"
+            },
+            "triggerName": {
+              "type": "string",
+              "description": "Optional name for the manual trigger"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": ["type", "stepId"],
+          "properties": {
+            "type": {
+              "type": "string",
+              "enum": ["onAbort"],
+              "$comment": "This step's time:hasBeginning coincides with an interruption time:Instant of the referenced step — not a standard Allen relation; models exceptional/contingent temporal ordering",
+              "description": "Step starts when another step is aborted"
+            },
+            "stepId": {
+              "type": "string",
+              "description": "ID of the step that must be aborted for this one to start"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

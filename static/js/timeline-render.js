@@ -1,5 +1,5 @@
 /*!
- * Rhylthyme timeline-render v2.0.0-beta.3
+ * Rhylthyme timeline-render v2.0.0-beta.4
  * (c) 2026 Rhylthyme contributors. Released under the Apache License 2.0.
  * Source: https://github.com/rhylthyme/rhylthyme-timeline
  *
@@ -25,12 +25,31 @@
  *   Rhylthyme.renderTimelineSvg(program, opts?)
  *       Pure: returns the SVG string. No DOM, no side effects.
  *       opts: { arrows, marks, legend } (all default true) — cross-track
- *       dependency arrows, indefinite/variable/manual step marks, legend.
+ *       dependency arrows (a fan-in over the instances of a replicated
+ *       step is drawn as ONE arrowhead with a bar glyph: solid for an
+ *       "all" barrier, dashed for "any"), indefinite/variable/manual step
+ *       marks, legend.
+ *       Planned-vs-actual: { baseline, deviationThreshold } or the
+ *       shorthand { run } — see below.
  *
  *   Rhylthyme.computeStepTimings(program)
  *       Returns { stepId: { start, end, duration, trackId, resolved } }
  *       in seconds from program start. `resolved` is false when the
  *       step's trigger could not be satisfied (cycle / dangling ref).
+ *
+ *   Rhylthyme.actualFromRun(record, program?, opts?)
+ *       { stepId: { start, end } } from a run record (rhylthyme-spec
+ *       `runs` schema), keyed by expanded step id, ready to pass as
+ *       computeStepTimings' `actual`. opts.endsOnly keeps only the ends,
+ *       which is what a replay check feeds back into the resolver.
+ *
+ *   Rhylthyme.timingsFromRun(program, record, opts?)
+ *       computeStepTimings(program, { actual: actualFromRun(record) }).
+ *
+ *   Rhylthyme.renderTimelineSvg(program, { run: record })
+ *       Planned-vs-actual overlay: the actual bars with the plan drawn
+ *       under each as a thin ghost bar (class "rt-baseline") and every
+ *       bar tagged data-deviation="early|late|on-time".
  *
  *   Rhylthyme.expandReplicates(program)
  *       Expand track/step `replicates` (and legacy batch_size/stagger) into
@@ -171,9 +190,167 @@
     }
   }
 
+  // ---- 0.3.0-alpha `instances` on step-referencing triggers ----------
+  //
+  // "each": the referencing step is replicated once per instance of the
+  //         referenced step, paired i -> i (transitive through further
+  //         "each" steps), placed in instance i's sub-track; offset/buffer/
+  //         event preserved. Serial replicates get per-instance sub-tracks
+  //         `<trackId>--<stepId>-r<i>` created on demand.
+  // "all":  explicit barrier -> compound{all} over the instances (the same
+  //         join a plain reference gets by default).
+  // "any":  compound{any} over the instances.
+  // Expanded copies carry instanceOf / instanceIndex; sub-tracks carry
+  // parentTrackId. No `instances` key survives expansion.
+  var _STEP_REF_TYPES = { afterStep: 1, afterStepWithBuffer: 1 };
+
+  function _triggerAtoms(trigger) {
+    if (!trigger || typeof trigger !== 'object') return [];
+    if (Array.isArray(trigger.triggers)) return trigger.triggers.filter(function (t) { return t && typeof t === 'object'; });
+    return [trigger];
+  }
+  function _hasInstances(trigger) {
+    return _triggerAtoms(trigger).some(function (t) { return Object.prototype.hasOwnProperty.call(t, 'instances'); });
+  }
+  function _stripInstances(trigger) {
+    _triggerAtoms(trigger).forEach(function (t) { delete t.instances; });
+  }
+
+  // Rewrite instances:"all"|"any" references into an explicit fan-in over
+  // the group's instances. Single trigger -> compound; inside a compound of
+  // the same logic -> flattened; different logic -> error (a nested
+  // compound is not expressible in the 0.2.0 constructs we emit).
+  function _rewriteBarrierTrigger(trigger, groups) {
+    var isCompound = Array.isArray(trigger.triggers);
+    var logic = trigger.logic;
+    var atoms = isCompound ? trigger.triggers : [trigger];
+    var out = [];
+    for (var i = 0; i < atoms.length; i++) {
+      var atom = atoms[i];
+      if (!atom || typeof atom !== 'object') { out.push(atom); continue; }
+      var inst = atom.instances;
+      delete atom.instances;
+      var group = null;
+      if ((inst === 'all' || inst === 'any') && _STEP_REF_TYPES[atom.type] && Object.prototype.hasOwnProperty.call(groups, atom.stepId)) group = groups[atom.stepId];
+      if (!group) { out.push(atom); continue; }
+      var fan = group.instanceIds.map(function (iid) { var e = _clone(atom); e.stepId = iid; return e; });
+      if (!isCompound) return { logic: inst, triggers: fan };
+      if (inst === logic) fan.forEach(function (e) { out.push(e); });
+      else throw new Error("instances: '" + inst + "' on '" + atom.stepId + "' inside a compound '" + logic + "' trigger is not supported (would require a nested compound)");
+    }
+    if (isCompound) { trigger.triggers = out; return trigger; }
+    return out[0];
+  }
+
+  // Expand a step whose trigger references an instance group with
+  // instances:"each": one copy per instance, paired i -> i, placed in
+  // instance i's sub-track, registered as a group itself.
+  function _expandEachStep(step, trackCopy, groups, remap, subTracksByParent, eachParents) {
+    var stepId = step.stepId, stepName = step.name || stepId, trigger = step.startTrigger || {};
+    var eachGroups = [], eachParentIds = [];
+    _triggerAtoms(trigger).forEach(function (atom) {
+      if (atom.instances !== 'each') return;
+      var group = (_STEP_REF_TYPES[atom.type] && Object.prototype.hasOwnProperty.call(groups, atom.stepId)) ? groups[atom.stepId] : null;
+      if (!group) { delete atom.instances; return; } // E_INSTANCES_ON_SINGLE: validator's job
+      eachGroups.push(group); eachParentIds.push(atom.stepId);
+    });
+    if (!eachGroups.length) { step.startTrigger = _rewriteBarrierTrigger(trigger, groups); return; }
+    var count = eachGroups[0].count;
+    for (var g = 1; g < eachGroups.length; g++) {
+      if (eachGroups[g].count !== count) {
+        throw new Error("E_EACH_COUNT_MISMATCH: step '" + stepId + "' pairs instances of '" + eachGroups[0].root + "' (count " + count + ") with '" + eachGroups[g].root + "' (count " + eachGroups[g].count + ")");
+      }
+    }
+    var place = eachGroups[0], parentTrack = place.parentTrack, parentId = parentTrack.trackId;
+    trackCopy.steps = trackCopy.steps.filter(function (s) { return s !== step; });
+    var instanceIds = [];
+    for (var i = 0; i < count; i++) {
+      var cs = _clone(step);
+      cs.stepId = stepId + '-r' + (i + 1); cs.name = stepName + ' (' + (i + 1) + ' of ' + count + ')';
+      cs.instanceOf = stepId; cs.instanceIndex = i + 1;
+      var ct = cs.startTrigger || {};
+      _triggerAtoms(ct).forEach(function (atom) {
+        if (atom.instances === 'each' && Object.prototype.hasOwnProperty.call(groups, atom.stepId)) {
+          atom.stepId = groups[atom.stepId].instanceIds[i];
+          delete atom.instances;
+        }
+      });
+      cs.startTrigger = _rewriteBarrierTrigger(ct, groups);
+      var sub = place.subTracks[i];
+      if (!sub) {
+        sub = { trackId: parentId + '--' + place.root + '-r' + (i + 1), name: (parentTrack.name || parentId) + ' - ' + place.rootName + ' (' + (i + 1) + ' of ' + count + ')', parentTrackId: parentId, steps: [] };
+        place.subTracks[i] = sub;
+        (subTracksByParent[parentId] = subTracksByParent[parentId] || []).push(sub);
+      }
+      sub.steps.push(cs);
+      instanceIds.push(cs.stepId);
+    }
+    groups[stepId] = { root: place.root, rootName: place.rootName, count: count, mode: place.mode, instanceIds: instanceIds, subTracks: place.subTracks, parentTrack: parentTrack };
+    eachParents[stepId] = eachParentIds;
+    remap[stepId] = { _join: true, stepIds: instanceIds };
+  }
+
+  // ---- 0.3.0-alpha `replicates.maxInFlight` --------------------------
+  //
+  // For a replicated step X with maxInFlight k and count n, instance i is
+  // *in flight* from its own start until instance i has ended in every
+  // instances:"each" descendant of X. Instance i + k may not start before
+  // instance i leaves flight, so for every i > k one `afterStep L-r<i-k>`
+  // per leaf chain is merged into X-r<i>'s trigger, L being the last
+  // "each" descendant of that chain. X with no "each" descendants gates on
+  // itself, turning a parallel fan-out into a rolling window of k.
+  //
+  // Each synthetic sub-trigger is tagged _synthetic:"inFlight" with
+  // inFlightOf / inFlightLimit so the renderer and the analyzer can tell it
+  // from an authored dependency; the timing resolver reads only
+  // type/stepId/offsets, so the tag is inert there, and it keeps the
+  // trigger from being re-expanded.
+  function _mergeInFlight(own, synthetic) {
+    // The step must satisfy its own trigger AND every gate, so the gates
+    // join an `all` compound. An `any` compound is nested rather than
+    // flattened, which would destroy its "first of these" meaning.
+    if (Array.isArray(own.triggers) && (own.logic || 'all') === 'all') {
+      own.triggers = own.triggers.concat(synthetic);
+      return own;
+    }
+    return { logic: 'all', triggers: [own].concat(synthetic) };
+  }
+
+  function _applyInFlightGates(tracks, groups, eachParents, inFlight) {
+    if (!inFlight.length) return;
+    var byId = {};
+    tracks.forEach(function (t) { (t.steps || []).forEach(function (s) { byId[s.stepId] = s; }); });
+    inFlight.forEach(function (entry) {
+      var root = entry[0], limit = entry[1], group = groups[root];
+      if (!group) return;
+      var count = group.count;
+      // k >= count is E_INFLIGHT_GT_COUNT (or a no-op); the validators
+      // report it and expansion stays a no-op rather than throwing.
+      if (limit < 1 || limit >= count) return;
+      var descendants = Object.keys(groups).filter(function (g) { return g !== root && groups[g].root === root; });
+      var hasEachChild = {};
+      descendants.forEach(function (child) {
+        (eachParents[child] || []).forEach(function (parent) { hasEachChild[parent] = 1; });
+      });
+      var leaves = descendants.filter(function (d) { return !hasEachChild[d]; });
+      if (!leaves.length) leaves = [root];
+      for (var i = limit; i < count; i++) {
+        var step = byId[group.instanceIds[i]];
+        if (!step) continue;
+        var synthetic = [];
+        leaves.forEach(function (leaf) {
+          var ids = groups[leaf].instanceIds;
+          if (i - limit >= ids.length) return;
+          synthetic.push({ type: 'afterStep', stepId: ids[i - limit], _synthetic: 'inFlight', inFlightOf: root, inFlightLimit: limit });
+        });
+        if (synthetic.length) step.startTrigger = _mergeInFlight(step.startTrigger || {}, synthetic);
+      }
+    });
+  }
+
   function _needsExpansion(program) {
     return (program.tracks || []).some(function (t) {
-      return t.replicates || t.batch_size > 1 || (t.steps || []).some(function (s) { return s && s.replicates; });
+      return t.replicates || t.batch_size > 1 || (t.steps || []).some(function (s) { return s && (s.replicates || _hasInstances(s.startTrigger)); });
     });
   }
 
@@ -216,23 +393,40 @@
       }
     });
     program.tracks = tracks;
-    // Phase 3: step-level replicates.
-    var newTracks = [], remap = {};
+    // Phase 3: step-level replicates (+ 0.3.0 `instances` triggers).
+    var newTracks = [], remap = {}, groups = {}, subTracksByParent = {}, deferred = [];
+    var eachParents = {}, inFlight = [];
     program.tracks.forEach(function (t) {
-      var has = (t.steps || []).some(function (s) { return s.replicates && (s.replicates.count || 1) > 1; });
-      if (!has) { var tc = _clone(t); (tc.steps || []).forEach(function (s) { delete s.replicates; }); newTracks.push(tc); return; }
-      var expanded = [], subTracks = [];
+      var tc = _clone(t), expanded = [];
+      tc.steps = expanded;
+      var subTracks = subTracksByParent[t.trackId] = subTracksByParent[t.trackId] || [];
       (t.steps || []).forEach(function (s) {
         var rep = s.replicates;
-        if (!rep || (rep.count || 1) <= 1) { var sc = _clone(s); delete sc.replicates; _remapTrigger(sc.startTrigger, remap); expanded.push(sc); return; }
+        if (!rep || (rep.count || 1) <= 1) {
+          var sc = _clone(s); delete sc.replicates;
+          // Leave `instances` triggers untouched until every group exists.
+          if (_hasInstances(sc.startTrigger)) deferred.push({ track: tc, step: sc });
+          else _remapTrigger(sc.startTrigger, remap);
+          expanded.push(sc); return;
+        }
         var count = rep.count, mode = rep.mode || 'parallel', delay = parseSeconds(rep.delay || 0);
+        if (_hasInstances(s.startTrigger)) {
+          _triggerAtoms(s.startTrigger).forEach(function (a) {
+            if (a.instances === 'each') throw new Error("E_EACH_WITH_REPLICATES: step '" + s.stepId + "' has both `replicates` and an `instances: \"each\"` trigger");
+          });
+          s = _clone(s); s.startTrigger = _rewriteBarrierTrigger(s.startTrigger, groups);
+        }
+        var group = { root: s.stepId, rootName: s.name, count: count, mode: mode, instanceIds: [], subTracks: [], parentTrack: tc };
+        for (var n = 0; n < count; n++) group.subTracks.push(null);
         if (mode === 'serial') {
           for (var j = 0; j < count; j++) {
             var cs = _clone(s); delete cs.replicates;
             cs.stepId = s.stepId + '-r' + (j + 1); cs.name = s.name + ' (' + (j + 1) + ' of ' + count + ')';
+            cs.instanceOf = s.stepId; cs.instanceIndex = j + 1;
             if (j === 0) _remapTrigger(cs.startTrigger, remap);
             else cs.startTrigger = { type: 'afterStep', stepId: s.stepId + '-r' + j };
             expanded.push(cs);
+            group.instanceIds.push(cs.stepId);
           }
           remap[s.stepId] = s.stepId + '-r' + count;
         } else {
@@ -240,22 +434,56 @@
           for (var k = 0; k < count; k++) {
             var cp = _clone(s); delete cp.replicates;
             cp.stepId = s.stepId + '-r' + (k + 1); cp.name = s.name + ' (' + (k + 1) + ' of ' + count + ')';
+            cp.instanceOf = s.stepId; cp.instanceIndex = k + 1;
             _remapTrigger(cp.startTrigger, remap);
             if (mode === 'stagger' && k > 0 && delay > 0) {
               var tr = cp.startTrigger || {}; tr.offsetSeconds = parseSeconds(tr.offsetSeconds || 0) + delay * k; cp.startTrigger = tr;
             }
-            subTracks.push({ trackId: t.trackId + '--' + s.stepId + '-r' + (k + 1), name: (t.name || t.trackId) + ' - ' + s.name + ' (' + (k + 1) + ' of ' + count + ')', steps: [cp] });
+            var st = { trackId: t.trackId + '--' + s.stepId + '-r' + (k + 1), name: (t.name || t.trackId) + ' - ' + s.name + ' (' + (k + 1) + ' of ' + count + ')', parentTrackId: t.trackId, steps: [cp] };
+            subTracks.push(st);
+            group.subTracks[k] = st;
             lastIds.push(cp.stepId);
           }
+          group.instanceIds = lastIds;
           remap[s.stepId] = { _join: true, stepIds: lastIds };
         }
+        groups[s.stepId] = group;
+        if (typeof rep.maxInFlight === 'number' && isFinite(rep.maxInFlight)) inFlight.push([s.stepId, rep.maxInFlight]);
       });
-      var tcopy = _clone(t); tcopy.steps = expanded; newTracks.push(tcopy);
-      subTracks.forEach(function (st) { newTracks.push(st); });
+      newTracks.push(tc);
     });
-    newTracks = newTracks.filter(function (t) { return (t.steps || []).length > 0; });
-    newTracks.forEach(function (t) { t.steps.forEach(function (s) { _remapTrigger(s.startTrigger, remap); }); });
-    program.tracks = newTracks;
+    // Expand `instances` triggers now that every replicated step is a
+    // group. A step chained "each" off another "each" step waits for that
+    // step's own expansion, so iterate to a fixed point.
+    var pendingEach = {};
+    deferred.forEach(function (d) {
+      if (_triggerAtoms(d.step.startTrigger).some(function (a) { return a.instances === 'each'; })) pendingEach[d.step.stepId] = 1;
+    });
+    while (deferred.length) {
+      var remaining = [], progressed = false;
+      deferred.forEach(function (d) {
+        var waits = _triggerAtoms(d.step.startTrigger).some(function (a) { return a.instances === 'each' && pendingEach[a.stepId]; });
+        if (waits) { remaining.push(d); return; }
+        _expandEachStep(d.step, d.track, groups, remap, subTracksByParent, eachParents);
+        delete pendingEach[d.step.stepId];
+        progressed = true;
+      });
+      if (!progressed) throw new Error('cyclic instances: "each" references among steps: ' + remaining.map(function (d) { return d.step.stepId; }).sort().join(', '));
+      deferred = remaining;
+    }
+    // Assemble: each top-level track followed by its sub-tracks, in
+    // creation order; drop empty tracks.
+    var ordered = [];
+    newTracks.forEach(function (tc) {
+      ordered.push(tc);
+      (subTracksByParent[tc.trackId] || []).forEach(function (st) { ordered.push(st); });
+    });
+    ordered = ordered.filter(function (t) { return (t.steps || []).length > 0; });
+    ordered.forEach(function (t) { t.steps.forEach(function (s) { _remapTrigger(s.startTrigger, remap); _stripInstances(s.startTrigger); }); });
+    // `maxInFlight` gates last: they reference already-remapped instance
+    // ids and must not be rewritten or stripped again.
+    _applyInFlightGates(ordered, groups, eachParents, inFlight);
+    program.tracks = ordered;
     return program;
   }
 
@@ -412,6 +640,72 @@
     return out;
   }
 
+  // ---------- Run records (planned vs actual) ----------------------------
+  //
+  // A run record (rhylthyme-spec `runs` schema, 0.1.0-alpha) holds, per
+  // step, the `planned` interval frozen at run start beside the `actual`
+  // interval that happened, both in seconds from `startedAt` — the same
+  // units computeStepTimings works in, so a record drops straight into
+  // `opts.actual`.
+  //
+  // Records key steps by the AUTHORED stepId plus a 1-based `instance`;
+  // the id the runtime used (and the id the expander produces) is
+  // `<stepId>-r<instance>` for a replicated step and plain `<stepId>`
+  // otherwise. Pass the program and the mapping is confirmed against its
+  // expanded step ids; without it, `instance > 1` implies the suffix.
+  // Python twin: rhylthyme_cli_runner.history.recorder.runtime_step_id.
+
+  function _isRunRecord(x) {
+    return !!x && typeof x === 'object' && !x.tracks && Array.isArray(x.steps);
+  }
+
+  function _expandedStepIds(program) {
+    if (!program || !program.tracks) return null;
+    var ids = {};
+    (expandReplicates(program).tracks || []).forEach(function (t) {
+      (t.steps || []).forEach(function (s) { if (s && s.stepId) ids[s.stepId] = 1; });
+    });
+    return ids;
+  }
+
+  function runtimeStepId(entry, ids) {
+    var base = entry && entry.stepId, inst = (entry && entry.instance) || 1;
+    var suffixed = base + '-r' + inst;
+    if (ids) {
+      if (ids[suffixed]) return suffixed;
+      if (ids[base]) return base;
+    }
+    return inst > 1 ? suffixed : base;
+  }
+
+  // opts.endsOnly — omit `start`, so the resolver has to derive every start
+  //                 from the triggers and the observed ends (replay check).
+  function actualFromRun(record, program, opts) {
+    if (!_isRunRecord(record) && _isRunRecord(program)) {
+      var swap = record; record = program; program = swap;
+    }
+    opts = opts || {};
+    var ids = _expandedStepIds(program);
+    var out = {};
+    if (!_isRunRecord(record)) return out;
+    record.steps.forEach(function (entry) {
+      if (!entry || !entry.stepId || !entry.actual) return;
+      var a = {};
+      if (!opts.endsOnly && typeof entry.actual.start === 'number') a.start = entry.actual.start;
+      if (typeof entry.actual.end === 'number') a.end = entry.actual.end;
+      if (a.start !== undefined || a.end !== undefined) out[runtimeStepId(entry, ids)] = a;
+    });
+    return out;
+  }
+
+  function timingsFromRun(program, record, opts) {
+    if (_isRunRecord(program)) { var swap = program; program = record; record = swap; }
+    opts = opts || {};
+    var resolverOpts = { actual: actualFromRun(record, program, opts) };
+    if (typeof opts.now === 'number' && isFinite(opts.now)) resolverOpts.now = opts.now;
+    return computeStepTimings(program, resolverOpts);
+  }
+
   // ---------- SVG rendering ----------------------------------------------
 
   var PALETTE = [
@@ -454,6 +748,21 @@
   //   states  — { [stepId]: 'done' | 'active' | 'waiting' } for bar styling
   //   width   — SVG width in px (default 820); the chart also scales with
   //             CSS since it carries a viewBox
+  // Planned-vs-actual options:
+  //   baseline — a second timings map (normally computeStepTimings(program)
+  //             with no actuals). Every step it covers gets a thin ghost bar
+  //             (class "rt-baseline") under its bar at the planned position,
+  //             and the bar itself is outlined by the SIGN of its end
+  //             deviation (actual end - planned end) and tagged
+  //             data-deviation="early" | "late" | "on-time". Rows grow to
+  //             make room and the legend gains the four keys.
+  //   deviationThreshold — seconds of end deviation inside which a step
+  //             counts as on time (default 30)
+  //   run     — a run record (rhylthyme-spec `runs` schema): shorthand for
+  //             timings = timingsFromRun(program, run) and
+  //             baseline = computeStepTimings(program). Either explicit
+  //             option still wins.
+  // Without `baseline`/`run` the output is unchanged, byte for byte.
   function renderTimelineSvg(program, opts) {
     program = expandReplicates(program || {});
     opts = opts || {};
@@ -465,7 +774,15 @@
     });
     if (!tracks.length) return '';
 
-    var timings = opts.timings || computeStepTimings(program);
+    var timings = opts.timings || null;
+    var baseline = opts.baseline || null;
+    if (opts.run) {
+      if (!timings) timings = timingsFromRun(program, opts.run);
+      if (!baseline) baseline = computeStepTimings(program);
+    }
+    if (!timings) timings = computeStepTimings(program);
+    var devThreshold = (typeof opts.deviationThreshold === 'number' && isFinite(opts.deviationThreshold) && opts.deviationThreshold >= 0)
+      ? opts.deviationThreshold : 30;
     var stepIndex = {}, trackOfStep = {}, rowOfTrack = {};
     tracks.forEach(function (t, ti) {
       rowOfTrack[t.trackId] = ti;
@@ -476,6 +793,7 @@
       var st = stepIndex[sid], d = st && st.duration;
       var maxEnd = timings[sid].end;
       if (marks && d && d.type === 'variable' && d.maxSeconds !== undefined) maxEnd = Math.max(maxEnd, timings[sid].start + parseSeconds(d.maxSeconds));
+      if (baseline && baseline[sid]) maxEnd = Math.max(maxEnd, baseline[sid].end);
       globalEnd = Math.max(globalEnd, maxEnd);
     }
     if (now !== null) globalEnd = Math.max(globalEnd, now);
@@ -483,8 +801,13 @@
 
     var W = (typeof opts.width === 'number' && opts.width > 300) ? opts.width : 820;
     var H_HEADER = 56;
-    var H_TRACK = 46;
-    var H_FOOTER = legend ? 62 : 28;
+    // A baseline overlay needs a second, thinner bar per row: the row grows
+    // and the main bar shrinks so both fit. Without it every dimension is
+    // exactly what it has always been (barMid stays rowY + H_TRACK / 2).
+    var H_TRACK = baseline ? 58 : 46;
+    var BAR_H = baseline ? 26 : H_TRACK - 14;
+    var GHOST_H = 9;
+    var H_FOOTER = legend ? (baseline ? 78 : 62) : 28;
     var PAD_LEFT = 150;
     var PAD_RIGHT = 18;
     var BAR_W = W - PAD_LEFT - PAD_RIGHT;
@@ -493,8 +816,23 @@
     function xOf(t) { return PAD_LEFT + (t / globalEnd) * BAR_W; }
     function rowY(ti) { return H_HEADER + ti * H_TRACK; }
     function barTop(ti) { return rowY(ti) + 7; }
-    function barMid(ti) { return rowY(ti) + H_TRACK / 2; }
-    var BAR_H = H_TRACK - 14;
+    function barMid(ti) { return barTop(ti) + BAR_H / 2; }
+    function ghostTop(ti) { return barTop(ti) + BAR_H + 4; }
+
+    // Sign of a step's end deviation against the baseline, with a dead band
+    // (deviationThreshold) around zero so a few seconds of tick lag does not
+    // read as a schedule slip.
+    var DEV_STROKE = { late: '#dc2626', early: '#2563eb', 'on-time': '#16a34a' };
+    function deviationOf(sid) {
+      if (!baseline) return null;
+      var plan = baseline[sid], real = timings[sid];
+      if (!plan || !real || typeof plan.end !== 'number' || typeof real.end !== 'number') return null;
+      var delta = real.end - plan.end;
+      return {
+        seconds: delta,
+        sign: delta > devThreshold ? 'late' : (delta < -devThreshold ? 'early' : 'on-time'),
+      };
+    }
 
     var parts = [];
     parts.push(
@@ -588,12 +926,27 @@
               + '" height="' + BAR_H + '" fill="' + color + '" opacity="0.3" rx="5" ry="5"/>');
           }
         }
+        // The plan, as a thin ghost bar under the bar that actually happened.
+        var plan = baseline ? baseline[step.stepId] : null;
+        if (plan) {
+          var gx1 = xOf(plan.start), gx2 = xOf(plan.end);
+          parts.push(
+            '<rect class="rt-baseline" data-step="' + esc(step.stepId) + '" x="' + gx1.toFixed(1)
+            + '" y="' + ghostTop(ti) + '" width="' + Math.max(2, gx2 - gx1).toFixed(1)
+            + '" height="' + GHOST_H + '" fill="' + color
+            + '" opacity="0.35" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3,2" rx="3" ry="3"/>'
+          );
+        }
+        var dev = deviationOf(step.stepId);
         var stroke = ' stroke="#ffffff" stroke-width="1.5"';
         if (state === 'active') stroke = ' stroke="#111827" stroke-width="2.5"';
         else if (state === 'waiting') stroke = ' stroke="#b91c1c" stroke-width="2" stroke-dasharray="3,3"';
+        else if (dev) stroke = ' stroke="' + DEV_STROKE[dev.sign] + '" stroke-width="2"';
         else if (isIndef) stroke = ' stroke="#111827" stroke-width="1.5" stroke-dasharray="5,3"';
         parts.push(
-          '<rect class="rt-bar' + (state ? ' rt-' + state : '') + '" data-step="' + esc(step.stepId) + '" x="' + x1.toFixed(1) + '" y="' + barTop(ti) + '" width="' + w.toFixed(1)
+          '<rect class="rt-bar' + (state ? ' rt-' + state : '') + '" data-step="' + esc(step.stepId) + '"'
+          + (dev ? ' data-deviation="' + dev.sign + '" data-deviation-seconds="' + Math.round(dev.seconds) + '"' : '')
+          + ' x="' + x1.toFixed(1) + '" y="' + barTop(ti) + '" width="' + w.toFixed(1)
           + '" height="' + BAR_H + '" fill="' + color + '" opacity="' + opacity
           + '" rx="5" ry="5" filter="url(#rt-shadow)"' + stroke + '/>'
         );
@@ -623,20 +976,75 @@
       });
     });
 
-    // Cross-track dependency arrows, drawn above the bars.
+    // A barrier (schema 0.3.0 instances:"all" / "any", or the implicit
+    // join the expander emits for a plain reference to a replicated step)
+    // is a compound trigger whose step references all point at instances
+    // of ONE authored step (same `instanceOf`, at least two of them).
+    // Returns 'all' | 'any' | null.
+    function barrierOf(step) {
+      var t = (step && step.startTrigger) || {};
+      if (!t.logic || !Array.isArray(t.triggers)) return null;
+      // A maxInFlight gate is not part of the barrier it sits beside.
+      var real = t.triggers.filter(function (tr) { return !(tr && tr._synthetic); });
+      if (real.length < 2) return null;
+      var group = null;
+      for (var i = 0; i < real.length; i++) {
+        var tr = real[i];
+        if (!tr || !tr.stepId || (tr.type !== 'afterStep' && tr.type !== 'afterStepWithBuffer')) return null;
+        var ref = stepIndex[tr.stepId];
+        if (!ref || !ref.instanceOf) return null;
+        if (group === null) group = ref.instanceOf;
+        else if (group !== ref.instanceOf) return null;
+      }
+      return t.logic === 'any' ? 'any' : 'all';
+    }
+    var BARRIER_GAP = 18;   // lines converge this far left of the target bar
+    var BARRIER_BAR_X = 11; // the bar glyph sits this far left of the target bar
+
+    // Cross-track dependency arrows (plus maxInFlight gates, which are
+    // drawn wherever they land), above the bars.
     if (arrows) {
-      var arrowCount = 0;
+      var arrowCount = 0, barrierCount = 0, inflightCount = 0;
       tracks.forEach(function (track, ti) {
         (track.steps || []).forEach(function (step) {
           var tim = timings[step.stepId];
           if (!tim) return;
+          var barrier = barrierOf(step);
+          var converging = 0;
           triggersOf(step).forEach(function (tr) {
             if (!tr || !tr.stepId) return;
             if (tr.type !== 'afterStep' && tr.type !== 'afterStepWithBuffer') return;
             var refTrack = trackOfStep[tr.stepId];
-            if (refTrack === undefined || refTrack === track.trackId) return;
+            if (refTrack === undefined) return;
             var ref = timings[tr.stepId];
             if (!ref) return;
+            // A maxInFlight gate (expander-synthesised, tagged
+            // _synthetic:"inFlight") is a capacity hold, not an authored
+            // dependency: draw it dotted and labelled with the limit, from
+            // the leaf instance that frees the slot to the instance it
+            // holds back, whether or not the two share a track.
+            if (tr._synthetic === 'inFlight') {
+              var leaf = stepIndex[tr.stepId] || {};
+              var limitLabel = (leaf.task || leaf.instanceOf || tr.stepId) + ' \u2264 ' + tr.inFlightLimit;
+              var ix1 = xOf(ref.end), ix2 = xOf(tim.start);
+              var iy1 = barMid(rowOfTrack[refTrack]), iy2 = barMid(ti);
+              var ireach = Math.max(24, Math.min(110, Math.abs(ix2 - ix1) * 0.6));
+              var ipath = 'M' + ix1.toFixed(1) + ',' + iy1.toFixed(1)
+                + ' C' + (ix1 + ireach).toFixed(1) + ',' + iy1.toFixed(1)
+                + ' ' + (ix2 - 3 - ireach).toFixed(1) + ',' + iy2.toFixed(1)
+                + ' ' + (ix2 - 3).toFixed(1) + ',' + iy2.toFixed(1);
+              inflightCount++;
+              parts.push('<g class="rt-inflight" data-inflight-of="' + esc(tr.inFlightOf)
+                + '" data-limit="' + esc(tr.inFlightLimit) + '" data-from="' + esc(tr.stepId)
+                + '" data-step="' + esc(step.stepId) + '">'
+                + '<path class="rt-inflight-edge" d="' + ipath + '" fill="none" stroke="#6b7280" stroke-width="1.5"'
+                + ' stroke-linecap="round" stroke-dasharray="1.5,3" marker-end="url(#rt-arrow)"/>'
+                + '<text x="' + ((ix1 + ix2) / 2).toFixed(1) + '" y="' + (Math.min(iy1, iy2) - 6).toFixed(1)
+                + '" font-size="9" fill="#6b7280" text-anchor="middle">' + esc(limitLabel) + '</text>'
+                + '</g>');
+              return;
+            }
+            if (refTrack === track.trackId) return;
             var fromT = (tr.event === 'start') ? ref.start : ref.end;
             var neg = parseSeconds(tr.offsetSeconds) < 0;
             var xFrom = xOf(fromT), xTo = xOf(tim.start);
@@ -645,9 +1053,11 @@
             // edge of the dependent bar, as a smooth S-curve (cubic Bezier)
             // in the style of the web player. The horizontal reach of the
             // control points grows with the distance so short hops stay
-            // tight and long ones sweep.
+            // tight and long ones sweep. Fan-in lines of a barrier stop at
+            // a common point left of the bar; one arrowhead + bar glyph is
+            // drawn there afterwards instead of N arrowheads.
             var dx = xTo - xFrom;
-            var xEnd = xTo - 3;
+            var xEnd = barrier ? xTo - BARRIER_GAP : xTo - 3;
             var path;
             if (dx >= 40) {
               // Forward hop: leave to the right, arrive from the left.
@@ -658,19 +1068,35 @@
                 + ' ' + xEnd.toFixed(1) + ',' + yTo.toFixed(1);
             } else {
               // Near-vertical or backward hop (a negative offset): leave the
-              // bar's bottom or top edge and drop into the target's edge.
+              // bar's bottom or top edge and drop into the target's edge
+              // (or into the barrier's convergence point).
               var dir = yTo > yFrom ? 1 : -1;
-              var y0 = yFrom + dir * (BAR_H / 2 + 1), y1 = yTo - dir * (BAR_H / 2 + 1);
+              var y0 = yFrom + dir * (BAR_H / 2 + 1), y1 = barrier ? yTo : yTo - dir * (BAR_H / 2 + 1);
+              var xArr = barrier ? xEnd : xTo;
               var reachY = Math.max(12, Math.abs(y1 - y0) * 0.5);
               path = 'M' + xFrom.toFixed(1) + ',' + y0.toFixed(1)
                 + ' C' + xFrom.toFixed(1) + ',' + (y0 + dir * reachY).toFixed(1)
-                + ' ' + xTo.toFixed(1) + ',' + (y1 - dir * reachY).toFixed(1)
-                + ' ' + xTo.toFixed(1) + ',' + y1.toFixed(1);
+                + ' ' + xArr.toFixed(1) + ',' + (y1 - dir * reachY).toFixed(1)
+                + ' ' + xArr.toFixed(1) + ',' + y1.toFixed(1);
             }
             arrowCount++;
-            parts.push('<path class="rt-edge" d="' + path + '" fill="none" stroke="#6b7280" stroke-width="1.5" stroke-linecap="round"'
-              + (neg ? ' stroke-dasharray="5,4"' : '') + ' marker-end="url(#rt-arrow)"/>');
+            converging++;
+            parts.push('<path class="rt-edge' + (barrier ? ' rt-fanin' : '') + '" d="' + path + '" fill="none" stroke="#6b7280" stroke-width="1.5" stroke-linecap="round"'
+              + (neg ? ' stroke-dasharray="5,4"' : '') + (barrier ? '' : ' marker-end="url(#rt-arrow)"') + '/>');
           });
+          if (barrier && converging > 0) {
+            // McKeever-style barrier: a short bar across the single fan-in
+            // arrow — solid for "all" (every instance), dashed for "any".
+            var bx = xOf(tim.start), by = barMid(ti);
+            var xc = bx - BARRIER_GAP, xb = bx - BARRIER_BAR_X;
+            barrierCount++;
+            parts.push('<g class="rt-barrier" data-barrier="' + barrier + '" data-step="' + esc(step.stepId) + '">'
+              + '<path d="M' + xc.toFixed(1) + ',' + by.toFixed(1) + ' L' + (bx - 3).toFixed(1) + ',' + by.toFixed(1)
+              + '" fill="none" stroke="#6b7280" stroke-width="1.5" marker-end="url(#rt-arrow)"/>'
+              + '<line x1="' + xb.toFixed(1) + '" y1="' + (by - 9).toFixed(1) + '" x2="' + xb.toFixed(1) + '" y2="' + (by + 9).toFixed(1)
+              + '" stroke="#374151" stroke-width="2.5" stroke-linecap="round"' + (barrier === 'any' ? ' stroke-dasharray="3,2.5"' : '') + '/>'
+              + '</g>');
+          }
         });
       });
     }
@@ -685,9 +1111,11 @@
     }
 
     if (legend) {
-      var ly = H - 30;
+      var ly = H - (baseline ? 46 : 30);
       var lx = 16;
       function key(x, drawer, label) {
+        // Baseline mode adds four keys, enough to overflow one line: wrap.
+        if (baseline && x > 16 && x + 20 + label.length * 5.2 > W - PAD_RIGHT) { ly += 16; x = 16; }
         parts.push(drawer(x, ly));
         parts.push('<text x="' + (x + 20) + '" y="' + (ly + 4) + '" font-size="10" fill="#4b5563">' + esc(label) + '</text>');
         return x + 20 + label.length * 5.2 + 16;
@@ -697,6 +1125,18 @@
       lx = key(lx, function (x, y) { return '<rect x="' + x + '" y="' + (y - 6) + '" width="14" height="12" fill="#9ca3af" stroke="#111827" stroke-width="1.2" stroke-dasharray="4,2" rx="2"/>'; }, 'indefinite');
       lx = key(lx, function (x, y) { return '<rect x="' + x + '" y="' + (y - 6) + '" width="7" height="12" fill="#9ca3af" rx="2"/><rect x="' + (x + 7) + '" y="' + (y - 6) + '" width="7" height="12" fill="#9ca3af" opacity="0.3" rx="2"/>'; }, 'variable');
       lx = key(lx, function (x, y) { return '<path d="M' + x + ',' + (y - 6) + ' l9,6 l-9,6 z" fill="#ffffff" stroke="#111827" stroke-width="1"/>'; }, 'manual');
+      if (arrows && barrierCount > 0) {
+        lx = key(lx, function (x, y) { return '<path d="M' + x + ',' + (y - 5) + ' L' + (x + 7) + ',' + y + ' M' + x + ',' + (y + 5) + ' L' + (x + 7) + ',' + y + ' M' + (x + 7) + ',' + y + ' L' + (x + 14) + ',' + y + '" fill="none" stroke="#6b7280" stroke-width="1.5" marker-end="url(#rt-arrow)"/><line x1="' + (x + 9) + '" y1="' + (y - 6) + '" x2="' + (x + 9) + '" y2="' + (y + 6) + '" stroke="#374151" stroke-width="2.5"/>'; }, 'barrier (all instances)');
+      }
+      if (arrows && inflightCount > 0) {
+        lx = key(lx, function (x, y) { return '<path d="M' + x + ',' + (y + 4) + ' C' + (x + 8) + ',' + (y + 4) + ' ' + (x + 6) + ',' + (y - 4) + ' ' + (x + 14) + ',' + (y - 4) + '" fill="none" stroke="#6b7280" stroke-width="1.5" stroke-dasharray="1.5,3" marker-end="url(#rt-arrow)"/>'; }, 'in-flight limit');
+      }
+      if (baseline) {
+        lx = key(lx, function (x, y) { return '<rect x="' + x + '" y="' + (y - 3) + '" width="14" height="7" fill="#9ca3af" opacity="0.35" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3,2" rx="2"/>'; }, 'planned');
+        lx = key(lx, function (x, y) { return '<rect x="' + x + '" y="' + (y - 6) + '" width="14" height="12" fill="#9ca3af" stroke="' + DEV_STROKE.late + '" stroke-width="2" rx="2"/>'; }, 'late (>' + Math.round(devThreshold) + 's)');
+        lx = key(lx, function (x, y) { return '<rect x="' + x + '" y="' + (y - 6) + '" width="14" height="12" fill="#9ca3af" stroke="' + DEV_STROKE.early + '" stroke-width="2" rx="2"/>'; }, 'early');
+        lx = key(lx, function (x, y) { return '<rect x="' + x + '" y="' + (y - 6) + '" width="14" height="12" fill="#9ca3af" stroke="' + DEV_STROKE['on-time'] + '" stroke-width="2" rx="2"/>'; }, 'on time');
+      }
     }
 
     // Footer brand mark
@@ -719,14 +1159,17 @@
   }
 
   return {
-    version: '2.0.0-beta.3',
+    version: '2.0.0-beta.4',
     // Program schema versions this engine understands; bumped in step
     // with the package's minor version when new trigger/duration forms
     // are added.
-    supportedSchemaVersions: ['0.1.0', '0.2.0-alpha'],
+    supportedSchemaVersions: ['0.1.0', '0.2.0-alpha', '0.3.0-alpha'],
     renderTimeline: renderTimeline,
     renderTimelineSvg: renderTimelineSvg,
     computeStepTimings: computeStepTimings,
+    actualFromRun: actualFromRun,
+    timingsFromRun: timingsFromRun,
+    runtimeStepId: runtimeStepId,
     stepNeedsStart: stepNeedsStart,
     stepNeedsFinish: stepNeedsFinish,
     expandReplicates: expandReplicates,

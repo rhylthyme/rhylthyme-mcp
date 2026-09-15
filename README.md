@@ -86,10 +86,10 @@ and say what to do next.
 
 ## Resources and prompt
 
-- `rhylthyme://schema/program`: the program JSON Schema (0.2.0-alpha)
-- `rhylthyme://guide/authoring`: one-page authoring rules, trigger vocabulary, how to make tracks finish together, choice branching
-- `rhylthyme://examples/{breakfast_schedule, lab_experiment, stir_fry_with_choice, hiit_cardio_workout, corporate_presentation}`: complete valid programs
-- prompt `plan_schedule(goal, finishAt?, constraints?)`: walks the model through search → build → validate → analyze → visualize
+- `rhylthyme://schema/program`: the program JSON Schema (0.3.0-alpha)
+- `rhylthyme://guide/authoring`: one-page authoring rules, trigger vocabulary, how to make tracks finish together, repeated work (`replicates`, per-instance `instances: "each"` chains, `"all"` barriers and `maxInFlight`), choice branching
+- `rhylthyme://examples/{breakfast_schedule, lab_experiment, stir_fry_with_choice, hiit_cardio_workout, corporate_presentation, cookies_three_trays}`: complete valid programs (`cookies_three_trays` is the 0.3.0-alpha per-instance / in-flight worked example)
+- prompt `plan_schedule(goal, finishAt?, constraints?)`: walks the model through search → build → validate → analyze → visualize, and names `replicates` / `instances` / `maxInFlight` in its constraints step
 
 ## What a program looks like
 

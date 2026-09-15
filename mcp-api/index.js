@@ -47,20 +47,23 @@ const { z } = require("zod");
 // Rhylthyme.renderTimeline(container, program) themselves.
 const TimelineRender = require("../static/js/timeline-render.js");
 const Schedule = require("./schedule.js");
+const Prompts = require("./prompts.js");
 // Bundled copies of the spec + a few example programs, exposed as MCP
 // resources. Kept under static/ so the same files are also fetchable
 // over HTTPS (www.rhylthyme.com/static/schema/…, /static/examples/…).
-const PROGRAM_SCHEMA = require("../static/schema/program_schema_0.2.0-alpha.json");
+const PROGRAM_SCHEMA = require("../static/schema/program_schema_0.3.0-alpha.json");
 const EXAMPLE_PROGRAMS = {
   breakfast_schedule: require("../static/examples/breakfast_schedule.json"),
   lab_experiment: require("../static/examples/lab_experiment.json"),
   stir_fry_with_choice: require("../static/examples/stir_fry_with_choice.json"),
   hiit_cardio_workout: require("../static/examples/hiit_cardio_workout.json"),
   corporate_presentation: require("../static/examples/corporate_presentation.json"),
+  // 0.3.0-alpha constructs: instances "each"/"all" + replicates.maxInFlight.
+  cookies_three_trays: require("../static/examples/cookies_three_trays.json"),
 };
 
 const SERVER_VERSION = "1.3.0";
-const SCHEMA_VERSION_LABEL = "0.2.0-alpha";
+const SCHEMA_VERSION_LABEL = "0.3.0-alpha";
 
 const API_BASE = "https://www.rhylthyme.com";
 const KITCHEN_BASE = "https://kitchen.rhylthyme.com";
@@ -254,14 +257,15 @@ function serverInstructions(vertical) {
     `${cfg.title} schedules ${domain}. A "program" is JSON: parallel **tracks** of sequential **steps**, each with a duration and a startTrigger (programStart / afterStep / programStartOffset / afterStepWithBuffer / manual), plus **resourceConstraints** (e.g. one oven) that the live runner enforces.`,
     "",
     "Workflow:",
-    "- Existing content: **search_public_recipes** → **load_public_recipe** (or the one-shot tool). The result already includes the live URL; no further call is needed.",
+    "- Existing content: **search_public_recipes** → **load_public_recipe** (or the one-shot tool). The result already includes the live URL.",
     oneShot.trimEnd(),
-    "- New content: build the program → **validate_program** (fix every error it reports) → optionally **analyze_schedule** (makespan, critical path, resource conflicts, wall-clock itinerary when you pass finishAt/startAt) → **visualize_schedule** to get the shareable live timeline. visualize_schedule validates too and refuses invalid programs.",
-    "- Never describe a schedule in prose when a timeline is possible; the URL is the deliverable. Quote the ASCII Gantt / itinerary from the tool result when summarizing.",
-    "- **login** is only needed for the user's private library (list_my_programs, load_program, save_program) and for imports (import_from_source with action=import/random). Public catalog tools need no token.",
-    "- Read `rhylthyme://guide/authoring` for the authoring cheat-sheet and `rhylthyme://schema/program` for the full JSON schema; `rhylthyme://examples/*` are complete, valid programs to pattern-match.",
+    "- New content: build the program → **validate_program** (fix every error it reports) → optionally **analyze_schedule** (makespan, critical path, conflicts, wall clock when you pass finishAt/startAt) → **visualize_schedule** for the shareable live timeline. visualize_schedule validates too and refuses invalid programs.",
+    "- Never describe a schedule in prose when a timeline is possible; the URL is the deliverable. Quote the Gantt / itinerary from the result when summarizing.",
+    "- **login** is only needed for the private library (list_my_programs, load_program, save_program) and for imports. Public catalog tools need no token.",
     "",
-    "Authoring rules: stepIds unique across the whole program; steps in one track never overlap (chain with afterStep); every `task` used by a step has a matching resourceConstraint; durations in seconds (numbers) or time strings (\"5m\", \"1h30m\"); to make everything finish together, delay short tracks with programStartOffset or afterStep, and pass finishAt to analyze_schedule to get wall-clock start times.",
+    "Authoring rules: stepIds unique across the whole program; steps in one track never overlap (chain with afterStep); every `task` used by a step has a matching resourceConstraint; durations in seconds (numbers) or time strings (\"5m\", \"1h30m\"); repeated work is `replicates` on ONE step with `instances: \"each\"`/`\"all\"` and `maxInFlight`, never copied steps; to make everything finish together, delay short tracks with programStartOffset or afterStep, and pass finishAt to analyze_schedule for wall-clock start times.",
+    "",
+    "Authoring from a goal or a source text: run the **plan_schedule** prompt — four turns (read the source back → confirm the program model → extract the steps with the words they came from → assign tracks and triggers). Without multi-message prompt support, read `rhylthyme://guide/extraction` for the same four turns. `rhylthyme://guide/authoring` is the cheat-sheet, `rhylthyme://schema/program` the full JSON schema, `rhylthyme://examples/*` complete valid programs.",
   ].filter((l) => l !== "").join("\n");
 }
 
@@ -285,15 +289,27 @@ const DESC = {
   },
   import_from_source: {
     generic:
-      "Import a recipe or lab protocol from an external source into a Rhylthyme program. Sources: spoonacular (recipes, preferred), themealdb (recipes, fallback), protocolsio (lab protocols), cooklang (.cook recipe URL — action must be 'import', query is the URL; GitHub blob URLs are auto-converted), opentrons (Opentrons Protocol API v2 .py — pass URL as query, or paste source via text; action must be 'import'), benchling (the user's connected library). Actions: search (no login needed), import and random (need the user's Rhylthyme token from **login**). After import, run the returned program through **visualize_schedule**.",
+      "Import a recipe or lab protocol from an external source into a Rhylthyme program. Sources: spoonacular (recipes, preferred), themealdb (recipes, fallback), protocolsio (lab protocols), cooklang (.cook recipe URL — action must be 'import', query is the URL; GitHub blob URLs are auto-converted), opentrons (Opentrons Protocol API v2 .py — pass URL as query, or paste source via text; action must be 'import'), benchling (the user's connected library). Actions: search (no login needed), import and random (need the user's Rhylthyme token from **login**). After import, run the returned program through **visualize_schedule**. Pass `enrich: true` with action='import' to split the import into parallel tracks with cross-track triggers (one model call, capped per day; inferred steps are marked `metadata.inferred`).",
     kitchen:
-      "Import a recipe from a URL or recipe source into a cookable Rhylthyme program. Use when the user shares a recipe link, says 'turn this URL into a timeline', or asks for a recipe from a specific service. Sources: spoonacular (preferred — high quality, structured ingredients), themealdb (free fallback), cooklang (.cook files from any URL including GitHub blob URLs — pass URL as query, action='import'). Actions: search (find candidates; no login), import (URL/id → program JSON; needs `token` from **login**), random (needs `token`). After import, pass the returned program to **visualize_schedule** so the user can start cooking.",
+      "Import a recipe from a URL or recipe source into a cookable Rhylthyme program. Use when the user shares a recipe link, says 'turn this URL into a timeline', or asks for a recipe from a specific service. Sources: spoonacular (preferred — high quality, structured ingredients), themealdb (free fallback), cooklang (.cook files from any URL including GitHub blob URLs — pass URL as query, action='import'). Actions: search (find candidates; no login), import (URL/id → program JSON; needs `token` from **login**), random (needs `token`). After import, pass the returned program to **visualize_schedule** so the user can start cooking. Pass `enrich: true` with action='import' to split the import into parallel tracks with cross-track triggers (one model call, capped per day; inferred steps are marked `metadata.inferred`).",
     lab:
-      "Import a lab protocol from an external source into a runnable Rhylthyme program. Use when the user pastes a protocols.io link, an Opentrons Protocol API .py file, a Benchling protocol URL, or a published method they want timed at the bench. Sources: benchling (the user's connected Benchling library — supports action='search' with `query`, then action='import' with the protocol id or URL), protocolsio (protocols.io URL or id), opentrons (Opentrons Protocol API v2 .py — pass URL as query, or paste source via text; action='import'). Actions: search, import, random (random not supported for benchling). import/random and anything Benchling need the user's Rhylthyme access token via `token` (from **login**). After import, pass the returned program to **visualize_schedule** so the user can start the experiment.",
+      "Import a lab protocol from an external source into a runnable Rhylthyme program. Use when the user pastes a protocols.io link, an Opentrons Protocol API .py file, a Benchling protocol URL, or a published method they want timed at the bench. Sources: benchling (the user's connected Benchling library — supports action='search' with `query`, then action='import' with the protocol id or URL), protocolsio (protocols.io URL or id), opentrons (Opentrons Protocol API v2 .py — pass URL as query, or paste source via text; action='import'). Actions: search, import, random (random not supported for benchling). import/random and anything Benchling need the user's Rhylthyme access token via `token` (from **login**). After import, pass the returned program to **visualize_schedule** so the user can start the experiment. Pass `enrich: true` with action='import' to split the import into parallel tracks with cross-track triggers (one model call, capped per day; inferred steps are marked `metadata.inferred`).",
     events:
       "Import an event template into a Rhylthyme program. The catalog leans toward recipe/protocol sources (no dedicated event-template source today), so this tool is mostly useful for power-users who want to seed an event run-of-show from a recipe-style schedule. import/random need the user's token from **login**. Most planners build from scratch with **validate_program** + **visualize_schedule** instead.",
     gym:
       "Import a workout from an external source into a Rhylthyme program. The catalog leans toward recipe/protocol sources (no dedicated workout source today), so this tool is mostly a power-user fallback. import/random need the user's token from **login**. Most lifters build a workout from scratch with **validate_program** + **visualize_schedule** instead, or pick one with **start_workout**.",
+  },
+  import_text: {
+    generic:
+      "Turn a block of pasted text \u2014 a recipe, a lab protocol, a run-of-show, a training plan \u2014 into a validated multi-track Rhylthyme program. Use when the user pastes the steps themselves and no structural importer fits (no URL, no supported service, a photo they transcribed, a PDF they copied out of). Runs four model turns server-side: read-back, schema check, step extraction with the exact source span each step came from, then tracks and triggers. Needs the user's Rhylthyme token from **login**; costs a model call per turn and is capped per day. Returns the program plus a step\u2192span table, so you can show the user which words each step came from and which steps were inferred.",
+    kitchen:
+      "Turn pasted recipe text into a cookable multi-track Rhylthyme program. Use when the user pastes or types the recipe itself \u2014 off a card, out of a cookbook photo, from a message \u2014 instead of giving a URL a recipe importer could fetch. Runs four model turns server-side (read-back, schema check, step extraction with source spans, then tracks and triggers) and hands back a program whose dishes run in parallel. Needs the user's token from **login**; capped per day. Pass `environmentType: 'kitchen'`, the time dinner has to be on the table as `deadline`, and the equipment limits as `hints`. Then call **visualize_schedule**.",
+    lab:
+      "Turn pasted protocol text into a runnable multi-track Rhylthyme program. Use when the user pastes the method itself \u2014 out of a paper, a PDF, a lab notebook \u2014 instead of a protocols.io or Benchling link a structural importer could read. Runs four model turns server-side (read-back, schema check, step extraction with the source span each step came from, then tracks and triggers), so incubations overlap hands-on work instead of queuing behind it. Needs the user's token from **login**; capped per day. Pass `environmentType: 'lab'` and the shared instruments as `hints`. Then call **visualize_schedule**.",
+    events:
+      "Turn a pasted run-of-show \u2014 a schedule in an email, a call sheet, a printed programme \u2014 into a multi-track Rhylthyme run-of-show with cues, gates and parallel tracks. Runs four model turns server-side (read-back, schema check, extraction with source spans, then tracks and triggers). Needs the user's token from **login**; capped per day. Pass `environmentType: 'events'`, doors or curtain time as `deadline`, and stage/PA/crew limits as `hints`. Then call **visualize_schedule**.",
+    gym:
+      "Turn a pasted workout \u2014 a coach's message, a plan off a whiteboard, a printed session \u2014 into a timed multi-track Rhylthyme program with work and rest intervals. Runs four model turns server-side (read-back, schema check, extraction with source spans, then tracks and triggers). Needs the user's token from **login**; capped per day. Pass `environmentType: 'gym'` and any equipment limits as `hints`. Then call **visualize_schedule**.",
   },
   create_environment: {
     generic:
@@ -342,6 +358,54 @@ const DESC = {
       "Open one of the user's own saved event run-of-shows by id. Returns a markdown summary (tracks, cues, total run-of-show) plus the live-timeline URL. Requires a login token.",
     gym:
       "Open one of the user's own saved workouts by id. Returns a markdown summary (exercises, sets, rest, total time) plus the live-timeline URL. Requires a login token.",
+  },
+  list_runs: {
+    generic:
+      "List the recorded executions of one saved program, newest first: when it ran, how it ended, and the actual makespan against the planned one. A run record is written whenever the live timeline is played (or the terminal runner is used); it is what makes the planned durations checkable against reality. Requires a login token; runs are private to whoever ran them.",
+    kitchen:
+      "List the times the user has actually cooked one of their saved recipes: date, how it ended, and how long it really took against the plan. Use when they ask 'how long did this take last time', 'have I made this before', or before proposing changes to a recipe's timings. Requires a login token.",
+    lab:
+      "List the recorded executions of one of the user's saved protocols: date, outcome, and actual against planned duration per run. Use when they ask how long a protocol really takes at the bench, or before adjusting incubation times. Requires a login token.",
+    events:
+      "List the times one of the user's saved run-of-shows was actually run: date, outcome, and actual against planned total. Use when they ask how a previous event ran to time. Requires a login token.",
+    gym:
+      "List the recorded sessions of one of the user's saved workouts: date, outcome, and actual against planned duration. Use when they ask how long the session really took or whether they finished it. Requires a login token.",
+  },
+  load_run: {
+    generic:
+      "Open one recorded execution by run id: planned versus actual start, end and duration for every step, what ended each step (a person, a timer, an abort), time the clock was paused, and the recorded variance factors. Use it to see where a plan drifts from reality. Requires a login token.",
+    kitchen:
+      "Open one recorded cook: planned versus actual timing for every step, which steps the cook ended by hand, and where the schedule drifted. Use it to explain why dinner ran late, or to justify new durations for a recipe. Requires a login token.",
+    lab:
+      "Open one recorded protocol execution: planned versus actual timing per step, which steps the operator ended, and any pauses. Use it to see which incubations really take longer than the protocol claims. Requires a login token.",
+    events:
+      "Open one recorded event: planned versus actual timing per cue, which cues the MC ended by hand, and where the run-of-show slipped. Requires a login token.",
+    gym:
+      "Open one recorded session: planned versus actual timing per exercise and rest, and which sets the lifter ended by hand. Requires a login token.",
+  },
+  calibrate_program: {
+    generic:
+      "Propose new durations for one of the user's saved programs from its recorded runs, with the evidence. For every non-fixed step with enough runs a person ended by hand: the median becomes the proposed default, the 10th/90th percentiles the proposed min/max, widened so the author's own range is never narrowed. A fixed step that consistently overruns gets a \"consider variable\" note and no number, because only the author can decide that. The result is a per-step table (n, median, IQR, current, proposed, delta) plus what accepting the lot would do to the makespan and the critical path. **It never saves anything**: pass `accept` to get the calibrated program back — each changed duration carrying `calibratedFrom` — and then save_program if the user wants it kept. Requires a login token; the runs are private to whoever ran them.",
+    kitchen:
+      "Turn the times the user has actually cooked a saved recipe into proposed durations for it. Each step they ended by hand gets its median cook time as the new default and its 10th/90th percentiles as the range, never narrower than what the recipe already says; a fixed step that always overruns is flagged as one that should probably be variable. Use it when they say a recipe's timings are wrong, or after a few cooks. Shows the evidence and the effect on total time; **saves nothing** unless you pass `accept` and then call save_program. Requires a login token.",
+    lab:
+      "Propose durations for one of the user's saved protocols from its recorded executions: the median observed time per operator-ended step as the new default, the 10th/90th percentiles as the range (never narrowed), and a \"consider variable\" note on any fixed incubation that consistently overruns. Use it when the protocol's stated times do not match the bench. Shows n, median and IQR per step and the effect on total duration; **writes nothing** unless you pass `accept` and then call save_program. Requires a login token.",
+    events:
+      "Propose new cue durations for one of the user's saved run-of-shows from how the previous events actually ran: median per cue as the default, 10th/90th percentiles as the range. Use it when the schedule always slips. Shows the evidence per cue and the effect on the total; **saves nothing** unless you pass `accept` and then call save_program. Requires a login token.",
+    gym:
+      "Propose new durations for one of the user's saved workouts from their recorded sessions: median per set or rest as the default, 10th/90th percentiles as the range. Use it when the planned session time never matches the real one. Shows the evidence and the effect on total time; **saves nothing** unless you pass `accept` and then call save_program. Requires a login token.",
+  },
+  list_public_runs: {
+    generic:
+      "List the runs other people have contributed for one exact program version: when each ran, how it ended, actual against planned total, and the variance factors that run was recorded with. Contribution is opt-in per run and contributed records carry no user id and no step notes, so this is anonymous, aggregate evidence about how long a program really takes. **No login needed.** Identify the program either by `program_hash` (`sha256:<hex>`, as `programVersion` in a run record) or by passing the `program` JSON, which is hashed here.",
+    kitchen:
+      "List the cooks other people have contributed for one exact version of a recipe: how long each really took against the plan, and what they reported (turkey weight, oven type, …). Use it before trusting a recipe's timings, or when the user asks 'how long does this actually take'. No login needed; contributed cooks are anonymous. Pass `program` (the recipe JSON) or `program_hash`.",
+    lab:
+      "List the contributed executions of one exact version of a protocol: actual against planned duration per run and the conditions each was run under. Use it to see whether an incubation's stated time holds up across labs. No login needed; contributed runs are anonymous. Pass `program` (the protocol JSON) or `program_hash`.",
+    events:
+      "List the contributed runs of one exact version of an event run-of-show: how each ran to time against the plan. No login needed; contributed runs are anonymous. Pass `program` or `program_hash`.",
+    gym:
+      "List the contributed sessions of one exact version of a workout: actual against planned duration per session. No login needed; contributed sessions are anonymous. Pass `program` or `program_hash`.",
   },
   search_public_recipes: {
     generic:
@@ -505,6 +569,7 @@ const ValidationOutput = {
   valid: z.boolean(),
   errors: z.array(Finding),
   warnings: z.array(Finding),
+  info: z.array(Finding).optional(),
   stats: z.looseObject({}).nullable(),
 };
 const AnalysisOutput = {
@@ -515,10 +580,33 @@ const AnalysisOutput = {
   tracks: z.array(z.looseObject({})),
   steps: z.array(z.looseObject({})),
   criticalPath: z.array(z.string()),
+  // One entry per critical-path edge saying what gates it: an in-flight
+  // cap (schema 0.3.0 `replicates.maxInFlight`), a saturated
+  // maxConcurrent task, an explicit offset/buffer, or the dependency.
+  bindingConstraints: z.array(z.looseObject({
+    from: z.string(),
+    to: z.string(),
+    kind: z.string(),
+  })).optional(),
+  // Conflict items always carry `kind`: "maxConcurrent" | "inFlight".
   resourceConflicts: z.array(z.looseObject({})),
+  // Per-replicated-step in-flight windows (empty unless maxInFlight is used).
+  inFlight: z.array(z.looseObject({})).optional(),
   actorPeak: z.looseObject({}),
   wallClock: z.looseObject({}).nullable(),
   validation: z.looseObject({}).optional(),
+  // Prediction from execution history (Phase 6). Present only when the call
+  // supplied run records; without them the output is what it always was.
+  // Per step the analysis also carries `plannedDurationSeconds` and, where
+  // there is history, `predicted: {seconds, low, high, basis, n, …}` — both
+  // inside the loose `steps` objects above.
+  durationsUsed: z.string().optional()
+    .describe("\"planned\" or \"predicted\": which duration set the makespan, itinerary, critical path and conflicts above were computed from."),
+  plannedMakespanSeconds: z.number().optional(),
+  plannedMakespan: z.string().optional(),
+  predictedMakespanSeconds: z.number().optional(),
+  predictedMakespan: z.string().optional(),
+  predictedCriticalPath: z.array(z.string()).optional(),
 };
 const SearchOutput = {
   query: z.string(),
@@ -745,8 +833,13 @@ function renderAsciiGantt(program) {
 // image content blocks natively, which sidesteps the "Claude
 // paraphrased the markdown" problem — the visual is delivered as a
 // rendered image, not as ASCII the model might compress.
-function renderSvgGantt(program) {
-  const svg = TimelineRender.renderTimelineSvg(program);
+// With a `run` (a `runs` schema record) the renderer draws planned-vs-actual:
+// the plan as a thin ghost bar under each step's actual bar, outlined by the
+// sign of its end deviation. Without one the output is unchanged.
+function renderSvgGantt(program, run) {
+  const svg = run && typeof run === "object"
+    ? TimelineRender.renderTimelineSvg(program, { run })
+    : TimelineRender.renderTimelineSvg(program);
   return svg || null;
 }
 
@@ -759,8 +852,8 @@ function renderSvgGantt(program) {
 // handing the bytes off. If the renderer is unavailable (cold start,
 // missing platform binary), we fall back to no image rather than
 // failing the whole tool call.
-function buildTimelineImageBlock(program) {
-  const svg = renderSvgGantt(program);
+function buildTimelineImageBlock(program, run) {
+  const svg = renderSvgGantt(program, run);
   if (!svg) return null;
   try {
     const { Resvg } = require("@resvg/resvg-js");
@@ -1148,7 +1241,7 @@ function registerValidateProgram(server, vertical) {
     {
       title: "Validate a program",
       description:
-        "Check a Rhylthyme program for structural and scheduling errors BEFORE visualizing or saving it: missing/duplicate ids, dangling afterStep references, dependency cycles, steps that overlap within a track, tasks with no resourceConstraint, unparseable durations, invalid choice references. Every finding has a `code`, a `message` and a `fix` hint — apply the fixes and re-run until `valid` is true. Warnings (e.g. tracks that finish far apart) are advisory. Pure computation: no network, no side effects, safe to call repeatedly.",
+        "Check a Rhylthyme program for structural and scheduling errors BEFORE visualizing or saving it: missing/duplicate ids, dangling afterStep references, dependency cycles, steps that overlap within a track, tasks with no resourceConstraint, unparseable durations, invalid choice references, and schema 0.3.0-alpha `instances`/`replicates` misuse (E_INSTANCES_ON_SINGLE, E_EACH_WITH_REPLICATES, E_EACH_COUNT_MISMATCH, E_INFLIGHT_GT_COUNT, E_INFLIGHT_NO_CHAIN). Every finding has a `code`, a `message` and a `fix` hint — apply the fixes and re-run until `valid` is true. Warnings (e.g. tracks that finish far apart, W_UNBARRIERED_CHAIN) are advisory; `info` notes (I_IMPLICIT_BARRIER: a replicated step referenced without `instances`) suggest making a barrier explicit. Pure computation: no network, no side effects, safe to call repeatedly.",
       inputSchema: { program: AnyProgram },
       outputSchema: ValidationOutput,
       annotations: Object.assign({ title: "Validate a program" }, ANN.pure),
@@ -1166,23 +1259,56 @@ function registerAnalyzeSchedule(server, vertical) {
     {
       title: "Analyze schedule timing",
       description:
-        "Resolve a Rhylthyme program onto the clock and report what the live runner will do: every step's start/end (seconds from start and, if you pass `finishAt` or `startAt`, ISO wall-clock times), total makespan, the critical path, resource conflicts (windows where more steps claim a task than its maxConcurrent allows), peak concurrency vs. declared actors, and per-track slack. Use it to answer 'when do I start the potatoes so everything is ready at 6pm?' (pass finishAt), to find why a schedule is longer than expected (critical path), or to check equipment contention before visualizing. Pure computation; also returns validation findings so you can fix problems in the same turn.",
+        "Resolve a Rhylthyme program onto the clock and report what the live runner will do: every step's start/end (seconds from start and, if you pass `finishAt` or `startAt`, ISO wall-clock times), total makespan, the critical path, `bindingConstraints` (what gates each critical-path edge — an in-flight cap, a saturated task, an offset, or a plain dependency), resource conflicts tagged `kind: \"maxConcurrent\"` (more steps claim a task than its maxConcurrent allows) or `kind: \"inFlight\"` (more instances of a replicated step are between it and its barrier than `replicates.maxInFlight` allows), `inFlight` windows per replicated step, peak concurrency vs. declared actors, and per-track slack (instances get their own sub-track rows, tagged with `parentTrackId` / `instanceOf`). Use it to answer 'when do I start the potatoes so everything is ready at 6pm?' (pass finishAt), to find why a schedule is longer than expected (critical path and binding constraints — e.g. the cooling rack, not the oven), or to check equipment contention before visualizing. Pure computation; also returns validation findings so you can fix problems in the same turn.\n\n**Analysing against real history.** Pass `history` (run records from **load_run**, or from `rhylthyme runs` on disk) and every step with enough measurements gains `predicted: {seconds, low, high, basis, n}` beside its planned duration, plus top-level `predictedMakespan` and `predictedCriticalPath`. `basis` is `\"identical\"` (runs of the same program version, environment and variance factors — their median), `\"model\"` (a per-step regression on the factors that correlate) or `\"none\"` (no usable measurement). Simpler still: give `program_id` (a UUID from **list_my_programs**) plus `token` and the tool loads the caller's own recorded runs of that program for you. `useDurations: \"predicted\"` then recomputes the makespan, itinerary, critical path and conflicts from the predicted durations instead of the authored ones; the default stays `\"planned\"` so a program is analysed on what it says.",
       inputSchema: {
         program: AnyProgram,
         finishAt: z.string().optional().describe("ISO 8601 datetime the whole program should END at (e.g. '2026-11-26T18:00:00-05:00'). Start times are computed backwards from it."),
         startAt: z.string().optional().describe("ISO 8601 datetime the program STARTS at. Ignored when finishAt is given."),
+        history: z.array(z.looseObject({})).optional()
+          .describe("Recorded runs of this program (`runs` schema 0.1.0-alpha documents, as load_run returns them in `run`). Supplying them adds `predicted` per step and `predictedMakespan` / `predictedCriticalPath` to the result. Only runs that measure the executor count — completed, wall clock, speed 1 — and within them only steps a person ended, unpaused."),
+        program_id: z.string().optional()
+          .describe("Library program UUID: with `token` and no `history`, the caller's own recorded runs of this program are loaded and used as the history."),
+        token: z.string().optional()
+          .describe("Your Rhylthyme access token from the login tool. Only needed with `program_id`, to load your recorded runs; analysis itself needs no login."),
+        predictionContext: z.looseObject({
+          environmentId: z.string().optional().describe("Predict for this environment; runs recorded elsewhere are not \"identical\"."),
+          userTags: z.looseObject({}).optional().describe("The variance factors of the run being planned, e.g. {\"turkeyKg\": 7, \"oven\": \"gas\"} — the values the model is evaluated at."),
+          userId: z.string().optional().describe("Prefer this person's own runs for the identical-context lookup before falling back to everyone's."),
+          programVersion: z.string().optional().describe("`sha256:<hex>` of the exact program JSON being planned; defaults to the hash of `program`."),
+          minIdentical: z.number().int().optional().describe("Identical-context runs needed before their median is used (default 3)."),
+          minModel: z.number().int().optional().describe("Measurements needed before a regression is fitted rather than a median (default 8)."),
+          corrThreshold: z.number().optional().describe("Minimum |Pearson r| for a factor to enter the model (default 0.3)."),
+          verdicts: z.looseObject({}).optional().describe("Inferentiality verdicts per step (`rhylthyme runs report`); a step marked executor-controlled gets no prediction."),
+        }).optional()
+          .describe("How to condition the prediction. Everything is optional; with none of it the lookup uses the program's own hash and the factors each run recorded."),
+        useDurations: z.enum(["planned", "predicted"]).default("planned")
+          .describe("Which duration set the makespan, wall-clock itinerary, critical path, conflicts and slack are computed from. \"planned\" (default) analyses the program as authored; \"predicted\" analyses it as history says it will actually run. Needs `history` (or `program_id` + `token`) to differ."),
       },
       outputSchema: AnalysisOutput,
       annotations: Object.assign({ title: "Analyze schedule timing" }, ANN.pure),
     },
-    async ({ program, finishAt, startAt }) => {
+    async ({ program, finishAt, startAt, history, program_id: progId, token, predictionContext, useDurations }) => {
       const v = Schedule.validateProgram(program);
       if (!v.stats) {
         return { content: [{ type: "text", text: Schedule.formatValidation(v) }], isError: true };
       }
-      const a = Schedule.analyzeSchedule(program, { finishAt, startAt });
+      // Convenience: no `history` given, but the caller named one of their own
+      // saved programs — load its recorded runs rather than making the model
+      // round-trip through list_runs/load_run for every one of them.
+      let records = Array.isArray(history) ? history : null;
+      let historyNote = null;
+      if (!records && progId && token) {
+        const loaded = await loadOwnRuns(progId, token);
+        if (loaded.error) return loaded.error;
+        records = loaded.records;
+        historyNote = loaded.note;
+      }
+      const a = Schedule.analyzeSchedule(program, {
+        finishAt, startAt, history: records, predictionContext, useDurations,
+      });
       a.validation = { valid: v.valid, errors: v.errors, warnings: v.warnings };
       const parts = [Schedule.formatAnalysis(a)];
+      if (historyNote) parts.push("", historyNote);
       if (!v.valid) parts.push("", "⚠️ The program has validation errors; timings above assume the fallback placement (t=0) for unschedulable steps.", "", Schedule.formatValidation(v));
       else if (v.warnings.length) parts.push("", Schedule.formatValidation(v));
       // Compact itinerary with wall clock when anchored.
@@ -1253,6 +1379,128 @@ function registerVisualizeSchedule(server, vertical) {
   );
 }
 
+// One line about what `enrich: true` did (or why it didn't), so the model
+// knows whether the tracks it is looking at came from the importer or from
+// the relationship pass, and which steps were inferred rather than read.
+function enrichmentNote(enrichment) {
+  if (!enrichment) return "";
+  if (enrichment.error) {
+    return "\n\n_Enrichment skipped: " + enrichment.error +
+      " \u2014 this is the program the importer produced._";
+  }
+  const added = (enrichment.added || []).length;
+  const changed = (enrichment.changed || []).length;
+  return "\n\n_Enriched into " + (enrichment.tracks || "?") + " track(s): " +
+    changed + " trigger(s) re-pointed, " + added + " inferred step(s) added" +
+    (added ? " (marked `metadata.inferred`)" : "") + "._";
+}
+
+// The step -> source-span table an import_text result carries. The point
+// of running extraction as its own turn is that every step can be traced
+// back to the words it came from; a step with no span is one the model
+// inferred (a preheat, a rest, a warm-up), and the editor -- and the user
+// -- should be able to tell the two apart at a glance.
+function spanTable(steps) {
+  const rows = (steps || []).filter((s) => s && s.stepId);
+  if (!rows.length) return "";
+  const lines = rows.slice(0, 60).map((s) => {
+    const span = s.sourceSpan;
+    const quote = span && span.quote
+      ? '"' + String(span.quote).replace(/\s+/g, " ").trim().slice(0, 90) + '"' +
+        (span.occurrence && span.occurrence > 1 ? ` (occurrence ${span.occurrence})` : "")
+      : (s.inferred ? "_inferred — not stated in the source_" : "_no span_");
+    return `| \`${s.stepId}\` | ${s.name || ""} | ${quote.replace(/\|/g, "\\|")} |`;
+  });
+  const inferred = rows.filter((s) => s.inferred).length;
+  return "\n\n**Where each step came from**\n\n| step | name | source |\n|---|---|---|\n" +
+    lines.join("\n") +
+    (rows.length > 60 ? `\n\n_(${rows.length - 60} more steps not shown)_` : "") +
+    (inferred ? `\n\n${inferred} step(s) were inferred rather than read from the text; they carry \`metadata.inferred\`.` : "");
+}
+
+// The 2/1/0 scores for the read-back and the model-check turns: 2 first
+// time, 1 after one retry, 0 never. Worth surfacing because a low score
+// says the model misread the source, which is a different problem from a
+// program that came out wrong.
+function turnNote(turns, chunks) {
+  if (!turns) return "";
+  const parts = [`read-back ${turns.t1_score}/2`, `model check ${turns.t2_score}/2`];
+  if (chunks && chunks > 1) parts.push(`source read in ${chunks} chunks`);
+  return "\n\n_Turn scores: " + parts.join(", ") + "._";
+}
+
+function registerImportText(server, vertical) {
+  server.registerTool(
+    "import_text",
+    {
+      title: "Import pasted text",
+      description: DESC.import_text[vertical],
+      inputSchema: {
+        text: z.string().describe(
+          "The source text itself: the recipe, protocol, run sheet or plan, as the user wrote or pasted it. " +
+          "Paste all of it — turn 1 reads it back and a long source is extracted in chunks.",
+        ),
+        environmentType: z.string().describe(
+          "Where the work happens: kitchen, lab, events, gym, or generic. Fills the scenario prompt's " +
+          "environment slot and becomes the program's environmentType.",
+        ),
+        deadline: z.string().optional().describe(
+          "When everything must be finished, if the user said: \"18:00\", \"dinner at six\", an ISO datetime.",
+        ),
+        hints: z.string().optional().describe(
+          "Equipment and people limits in the user's own words, e.g. 'one oven, two burners, one cook'. " +
+          "Used as the scenario prompt's environment and as the resource constraints to expect.",
+        ),
+        token: z.string().optional().describe(
+          "User's Rhylthyme access token from the **login** tool. Required: this import runs model calls on the server.",
+        ),
+      },
+      annotations: Object.assign({ title: "Import pasted text" }, ANN.read),
+    },
+    async ({ text, environmentType, deadline, hints, token }) => {
+      if (!token) return loginRequired("import_text");
+      const body = (text || "").trim();
+      if (!body) return errorResult("import_text needs `text` — the source to extract from.");
+      try {
+        const resp = await fetch(`${API_BASE}/api/import`, fetchOpts({
+          method: "POST",
+          headers: { Authorization: "Bearer " + token, "Content-Type": "application/json" },
+          body: JSON.stringify({
+            source: "llm-text",
+            text: body,
+            environmentType: environmentType || "generic",
+            deadline: deadline || undefined,
+            hints: hints || undefined,
+          }),
+        }, 120000));
+        const data = await resp.json().catch(() => ({}));
+        if (!resp.ok) {
+          // The server names the turn that failed; pass that through so the
+          // model can retry with a fuller source instead of guessing.
+          const stage = data && data.stage ? ` (failed at ${data.stage})` : "";
+          return apiError("Text import failed" + stage, resp, (data && data.error) || "");
+        }
+        if (data && data.error) return errorResult(`Text import failed: ${data.error}`);
+        const program = data && data.program;
+        if (!program || !program.tracks) return errorResult("The import returned no program JSON.");
+        const v = Schedule.validateProgram(program);
+        const summary = formatProgramSummary(program, null, summaryOpts(vertical, {
+          scheduleCheck: v.valid
+            ? Schedule.formatAnalysis(Schedule.analyzeSchedule(program))
+            : Schedule.formatValidation(v),
+        }))
+          + turnNote(data.turns, data.chunks)
+          + spanTable(data.steps)
+          + "\n\nCall **visualize_schedule** with this program (below) to get the live-timeline URL.\n\n```json\n"
+          + JSON.stringify(program) + "\n```";
+        return { content: buildPreviewContent(program, summary, {}) };
+      } catch (e) {
+        return errorResult(`Error: ${e.message || e}`);
+      }
+    },
+  );
+}
+
 function registerImportFromSource(server, vertical) {
   server.registerTool(
     "import_from_source",
@@ -1262,10 +1510,31 @@ function registerImportFromSource(server, vertical) {
       inputSchema: {
         source: z.enum([
           "themealdb", "protocolsio", "spoonacular", "cooklang", "opentrons", "benchling",
+          // Pasted free text with no structure to read. `action` must be
+          // 'import' and the text goes in `text`; the dedicated
+          // **import_text** tool is the better door for it (it takes the
+          // environment and the deadline, and reports the source span per
+          // step), but the enum accepts it so a model that already has
+          // this tool open does not have to switch.
+          "llm-text",
         ]),
         action: z.enum(["search", "import", "random"]),
         query: z.string().optional().describe("Search keywords (search), or the URL / id to import (import)."),
         text: z.string().optional().describe("Raw source text (Opentrons .py) when the user pasted it instead of a URL."),
+        // A structural importer reads structure, not meaning, so it
+        // yields one track chained head-to-tail. `enrich` sends that step
+        // list through turn 4 of the plan_schedule prompt server-side --
+        // tracks, triggers, the question-refinement pattern -- and returns
+        // a multi-track program. Costs a model call, so it is opt-in and
+        // rate-limited; a failed enrichment still returns the import.
+        enrich: z.boolean().optional()
+          .describe(
+            "Split the import into parallel tracks with cross-track triggers (action='import' only). " +
+            "Runs the relationship turn of the plan_schedule prompt server-side against the imported " +
+            "step list: steps, durations and resources are kept as imported, tracks and start triggers " +
+            "are inferred, and any step the model adds is marked `metadata.inferred`. Costs a model call " +
+            "and is capped per day; if it fails you still get the un-enriched program.",
+          ),
         // `token` is the user's Rhylthyme access token (NOT the Benchling
         // token). rhylthyme.com gates import/random behind sign-in, and
         // Benchling needs it to look up the user's stored credentials.
@@ -1278,7 +1547,7 @@ function registerImportFromSource(server, vertical) {
       },
       annotations: Object.assign({ title: "Import from an external source" }, ANN.read),
     },
-    async ({ source, action, query, text, token }) => {
+    async ({ source, action, query, text, token, enrich }) => {
       const authHeader = token
         ? { Authorization: "Bearer " + token, "Content-Type": "application/json" }
         : { "Content-Type": "application/json" };
@@ -1379,6 +1648,7 @@ function registerImportFromSource(server, vertical) {
           const body = { source };
           if (query) body.query = query;
           if (text) body.text = text;
+          if (enrich) body.enrich = true;
           options = { method: "POST", headers: authHeader, body: JSON.stringify(body) };
         } else {
           url = `${API_BASE}/api/import/random`;
@@ -1395,7 +1665,8 @@ function registerImportFromSource(server, vertical) {
           const v = Schedule.validateProgram(program);
           const summary = formatProgramSummary(program, null, summaryOpts(vertical, {
             scheduleCheck: v.valid ? Schedule.formatAnalysis(Schedule.analyzeSchedule(program)) : Schedule.formatValidation(v),
-          })) + "\n\nCall **visualize_schedule** with this program (below) to get the live-timeline URL.\n\n```json\n"
+          })) + enrichmentNote(data.enrichment)
+            + "\n\nCall **visualize_schedule** with this program (below) to get the live-timeline URL.\n\n```json\n"
             + JSON.stringify(program) + "\n```";
           return { content: buildPreviewContent(program, summary, {}) };
         }
@@ -1537,6 +1808,461 @@ function registerLoadProgram(server, vertical) {
         const summary = formatProgramSummary(program, url, summaryOpts(vertical));
         const imageUrl = ogTimelineUrlForProgram(data.id || progId, vertical);
         return { content: buildPreviewContent(program, summary, { imageUrl }) };
+      } catch (e) {
+        return errorResult(`Error: ${e.message || e}`);
+      }
+    },
+  );
+}
+
+// ---------------------------------------------------------------------
+// Execution history. A run record (runs schema 0.1.0-alpha) is written by
+// a runtime — the web player, the CLI runner — and stored beside the
+// program in the user's library. Both tools are thin wrappers over the
+// Flask endpoints; runs are private to the person who ran them.
+// See plans/execution-history-duration-prediction.md Phase 3.
+// ---------------------------------------------------------------------
+
+function _runDeviation(planned, actual) {
+  if (typeof planned !== "number" || typeof actual !== "number" || planned <= 0) return "";
+  const pct = Math.round(((actual - planned) / planned) * 100);
+  if (pct === 0) return " (on plan)";
+  return ` (${pct > 0 ? "+" : ""}${pct} %)`;
+}
+
+// Load the caller's own run records for one saved program, whole (not the
+// summary rows list_runs renders): `?full=1` on the same endpoint asks Flask
+// to include each row's run_json. Returns
+// `{ records, note }` or `{ error }` (an MCP error result, ready to return).
+// Shared by analyze_schedule's `program_id` convenience and by
+// calibrate_program.
+async function loadOwnRuns(progId, token) {
+  let resp;
+  try {
+    resp = await fetch(
+      `${API_BASE}/api/mcp/programs/${encodeURIComponent(progId)}/runs?full=1`,
+      fetchOpts({ headers: { Authorization: "Bearer " + token } }),
+    );
+  } catch (e) {
+    return { error: errorResult(`Could not reach rhylthyme.com to load your runs: ${e.message || e}`) };
+  }
+  if (!resp.ok) return { error: apiError("Could not load your recorded runs", resp, await readErrorBody(resp)) };
+  let data;
+  try { data = await resp.json(); } catch (e) { data = {}; }
+  const rows = (data && data.runs) || [];
+  const records = rows.map((r) => r && r.run).filter((r) => r && typeof r === "object");
+  const note = records.length
+    ? `_History: ${records.length} recorded run${records.length === 1 ? "" : "s"} of this program, loaded from your library._`
+    : "_No recorded runs of this program yet, so there is nothing to predict from — the planned durations are all there is._";
+  return { records, note };
+}
+
+function registerListRuns(server, vertical) {
+  server.registerTool(
+    "list_runs",
+    {
+      title: "List recorded runs",
+      description: DESC.list_runs[vertical],
+      inputSchema: {
+        program_id: z.string().describe("The program UUID from list_my_programs or the program's URL"),
+        token: z.string().optional().describe("Your Rhylthyme access token from the login tool"),
+      },
+      annotations: Object.assign({ title: "List recorded runs" }, ANN.read),
+    },
+    async ({ program_id: progId, token }) => {
+      if (!token) return loginRequired("list_runs");
+      try {
+        const resp = await fetch(
+          `${API_BASE}/api/mcp/programs/${encodeURIComponent(progId)}/runs`,
+          fetchOpts({ headers: { Authorization: "Bearer " + token } }),
+        );
+        if (!resp.ok) return apiError("Could not list runs", resp, await readErrorBody(resp));
+        const data = await resp.json();
+        const runs = data.runs || [];
+        if (runs.length === 0) {
+          return textResult(
+            "No runs recorded for this program yet. Runs are written when somebody plays the " +
+            "live timeline to the end (or stops part-way) while signed in, and by `rhylthyme run` " +
+            "in the terminal.",
+          );
+        }
+        const lines = runs.map((r) => {
+          const when = (r.startedAt || "").replace("T", " ").replace(/\..*$/, "").replace("Z", " UTC");
+          const plan = _fmtMinutes(r.plannedMakespanSeconds);
+          const act = _fmtMinutes(r.actualMakespanSeconds);
+          const flags = [];
+          if (r.pausedSeconds) flags.push(`paused ${_fmtMinutes(r.pausedSeconds)}`);
+          if (r.speed && Number(r.speed) !== 1) flags.push(`${r.speed}× speed`);
+          if (r.clockMode && r.clockMode !== "wall") flags.push(r.clockMode + " clock");
+          return `- **${when}** — ${r.outcome} · actual ${act} vs planned ${plan}` +
+            _runDeviation(r.plannedMakespanSeconds, r.actualMakespanSeconds) +
+            (flags.length ? ` · ${flags.join(", ")}` : "") +
+            `\n  Run ID: \`${r.id}\` (${r.runtime || "?"}, ${r.steps} steps)`;
+        });
+        return textResult(
+          `${runs.length} recorded run${runs.length !== 1 ? "s" : ""} for this program, newest first:\n\n` +
+          lines.join("\n") +
+          "\n\nUse **load_run** with a Run ID for the planned-vs-actual detail per step.",
+        );
+      } catch (e) {
+        return errorResult(`Error: ${e.message || e}`);
+      }
+    },
+  );
+}
+
+function registerLoadRun(server, vertical) {
+  server.registerTool(
+    "load_run",
+    {
+      title: "Open a recorded run",
+      description: DESC.load_run[vertical],
+      inputSchema: {
+        run_id: z.string().describe("The run UUID from list_runs"),
+        token: z.string().optional().describe("Your Rhylthyme access token from the login tool"),
+      },
+      annotations: Object.assign({ title: "Open a recorded run" }, ANN.read),
+    },
+    async ({ run_id: runId, token }) => {
+      if (!token) return loginRequired("load_run");
+      try {
+        const resp = await fetch(
+          `${API_BASE}/api/mcp/runs/${encodeURIComponent(runId)}`,
+          fetchOpts({ headers: { Authorization: "Bearer " + token } }),
+        );
+        if (!resp.ok) return apiError("Could not load run", resp, await readErrorBody(resp));
+        const data = await resp.json();
+        const record = data.run || {};
+        const rt = record.runtime || {};
+        const head = [
+          `## Run ${record.runId || runId}`,
+          "",
+          `- Program: \`${record.programId || "?"}\` (${record.programVersion || "no hash"})`,
+          `- Started: ${record.startedAt || "?"}${record.endedAt ? ` · ended ${record.endedAt}` : ""}`,
+          `- Outcome: **${record.outcome || "?"}** · ${rt.kind || "?"} ${rt.version || ""}`.trim() +
+            ` · ${rt.clockMode || "?"} clock · ${rt.speed === undefined ? 1 : rt.speed}× speed`,
+          `- Makespan: actual ${_fmtMinutes(data.actualMakespanSeconds)} vs planned ${_fmtMinutes(data.plannedMakespanSeconds)}` +
+            _runDeviation(data.plannedMakespanSeconds, data.actualMakespanSeconds),
+        ];
+        const tags = (record.context || {}).userTags || {};
+        const tagKeys = Object.keys(tags);
+        if (tagKeys.length) head.push(`- Recorded factors: ${tagKeys.map((k) => `${k}=${tags[k]}`).join(", ")}`);
+        const rows = (record.steps || []).map((s) => {
+          const planned = s.planned || {};
+          const actual = s.actual || {};
+          const pd = typeof planned.end === "number" && typeof planned.start === "number"
+            ? planned.end - planned.start : null;
+          const ad = typeof actual.end === "number" && typeof actual.start === "number"
+            ? actual.end - actual.start : null;
+          const name = s.stepId + (s.instance && s.instance > 1 ? ` [${s.instance}]` : "");
+          return `| ${name} | ${planned.durationType || "?"} | ${_fmtMinutes(pd)} | ${ad === null ? "—" : _fmtMinutes(ad)}` +
+            `${_runDeviation(pd, ad)} | ${s.endedBy || (actual.start === undefined ? "never started" : "still running")}` +
+            ` | ${s.pausedSeconds ? _fmtMinutes(s.pausedSeconds) : "—"} |`;
+        });
+        const table = rows.length
+          ? ["", "| Step | Kind | Planned | Actual | Ended by | Paused |", "|---|---|---|---|---|---|", ...rows].join("\n")
+          : "\n(no steps recorded)";
+        return textResult(head.join("\n") + "\n" + table +
+          "\n\nOnly steps a person ended (`endedBy: executor`), unpaused, at speed 1, in a completed run " +
+          "measure how long the work really takes." +
+          "\n\nTo see it: call **preview_timeline** with this program and `run` set to the run record above " +
+          "for a planned-versus-actual picture, or **calibrate_program** to turn these measurements into " +
+          "proposed durations.");
+      } catch (e) {
+        return errorResult(`Error: ${e.message || e}`);
+      }
+    },
+  );
+}
+
+// ---------------------------------------------------------------------
+// Calibration (Phase 5). A read-only tool over POST /api/mcp/calibrate:
+// the server proposes durations from the caller's recorded runs, and this
+// renders the proposal. It never saves. `accept` asks the server to write the
+// accepted values into a *copy* of the program and hand it back; keeping it
+// is a separate, explicit **save_program** call the user has to want.
+// ---------------------------------------------------------------------
+
+// One duration as one cell: "min–default–max" for a range, else the number.
+// The CLI's `describe_values`.
+function _describeDuration(values) {
+  if (!values || typeof values !== "object") return "—";
+  if (values.type === "fixed" || values.seconds !== undefined) return _fmtMinutes(values.seconds);
+  const low = values.minSeconds, def = values.defaultSeconds, high = values.maxSeconds;
+  if (low === undefined && high === undefined) return _fmtMinutes(def);
+  return [low, def, high].map((v) => (v === undefined || v === null ? "—" : _fmtMinutes(v))).join("–");
+}
+
+function _fmtSigned(seconds) {
+  if (typeof seconds !== "number" || !isFinite(seconds)) return "—";
+  const m = Math.round(seconds / 60);
+  if (m === 0) return "±0min";
+  return (m > 0 ? "+" : "−") + _fmtMinutes(Math.abs(m) * 60);
+}
+
+const CALIBRATE_REASONS = {
+  "insufficient-runs": "fewer than k measured runs",
+  "fixed-duration": "fixed duration: history only confirms the timer",
+  "no-measurements": "no measurements in the recorded runs",
+  "not-in-program": "measured, but no such step in the program any more",
+  "not-a-duration-object": "duration is a bare number or time string",
+};
+
+// The per-step table + the effect line, the same shape `rhylthyme calibrate`
+// prints in the terminal.
+function formatCalibration(proposal, calibrated) {
+  const rows = proposal.steps || [];
+  const proposed = rows.filter((r) => r.status === "proposed");
+  const notes = rows.filter((r) => r.status === "note");
+  const lines = [];
+  lines.push(`## Calibration proposal: ${proposal.programId || "(unknown program)"}`);
+  lines.push("");
+  const excluded = (proposal.runsExcluded || []).length;
+  lines.push(
+    `Runs: **${proposal.runsUsable}** usable of ${proposal.runsConsidered}` +
+    (excluded ? ` (${excluded} excluded: paused, scaled, simulated or unfinished)` : "") +
+    `; k=${proposal.minRuns}, range from P${proposal.lowPercentile}/P${proposal.highPercentile} widened to the author's.`,
+  );
+  lines.push(
+    `Proposed: **${proposed.length} step${proposed.length === 1 ? "" : "s"}**` +
+    (notes.length ? `; notes on ${notes.length} fixed step${notes.length === 1 ? "" : "s"}` : "") +
+    `; as of ${proposal.asOf}.`,
+  );
+  lines.push("");
+  lines.push("| Step | Type | n | Current | Proposed | Median | IQR | Delta | Note |");
+  lines.push("|---|---|---|---|---|---|---|---|---|");
+  rows.forEach((r) => {
+    const ev = r.evidence || {};
+    const note = r.status === "note"
+      ? `${r.note} (lag ${_fmtSigned(ev.lagSeconds)})`
+      : (r.status === "proposed" ? (r.verdict || "") : (CALIBRATE_REASONS[r.reason] || r.reason || ""));
+    lines.push([
+      r.stepId,
+      r.durationType || "—",
+      r.n,
+      _describeDuration(ev.current),
+      r.status === "proposed" ? _describeDuration(ev.proposed) : "—",
+      ev.median === null || ev.median === undefined ? "—" : _fmtMinutes(ev.median),
+      ev.iqr === null || ev.iqr === undefined ? "—" : _fmtMinutes(ev.iqr),
+      r.status === "proposed" ? _fmtSigned(ev.deltaSeconds) : "—",
+      note,
+    ].join(" | ").replace(/^/, "| ") + " |");
+  });
+  lines.push("");
+  const effect = proposal.effect || {};
+  if (!Object.keys(effect).length) {
+    lines.push("**Effect if accepted:** not computed.");
+  } else if (!(effect.acceptedSteps || []).length) {
+    lines.push(`**Effect if accepted:** nothing to accept; makespan stays ${_fmtMinutes(effect.makespanBeforeSeconds)}.`);
+  } else {
+    lines.push(
+      `**Effect if accepted:** makespan ${_fmtMinutes(effect.makespanBeforeSeconds)} → ` +
+      `${_fmtMinutes(effect.makespanAfterSeconds)} (${_fmtSigned(effect.makespanDeltaSeconds)}); ` +
+      (effect.criticalPathChanged
+        ? `critical path changes to ${(effect.criticalPathAfter || []).join(" → ")}.`
+        : "critical path unchanged."),
+    );
+  }
+  lines.push("");
+  if (calibrated) {
+    lines.push(
+      "**Nothing has been saved.** The calibrated program is in `structuredContent.program` " +
+      "(each changed duration carries `calibratedFrom: {runs, asOf, programVersion}`). Call " +
+      "**save_program** with it to keep it, after showing the user what changed.",
+    );
+  } else if (proposed.length) {
+    lines.push(
+      "**Nothing has been written.** Call calibrate_program again with " +
+      "`accept: [\"" + proposed.map((r) => r.stepId).join("\", \"") + "\"]` (or `\"all\"`) to get the " +
+      "calibrated program back, then **save_program** to keep it.",
+    );
+  } else {
+    lines.push("Nothing to accept yet. A step needs " + proposal.minRuns +
+      " runs it was ended by hand in, unpaused, at speed 1, before history can propose a number for it.");
+  }
+  return lines.join("\n");
+}
+
+function registerCalibrateProgram(server, vertical) {
+  server.registerTool(
+    "calibrate_program",
+    {
+      title: "Propose durations from recorded runs",
+      description: DESC.calibrate_program[vertical],
+      inputSchema: {
+        program: AnyProgram.optional()
+          .describe("The program JSON to calibrate. Omit it and `program_id`'s saved JSON is used, so the usual call is just an id."),
+        program_id: z.string().optional()
+          .describe("Library program UUID (from list_my_programs). Names the program whose recorded runs are the evidence, and — with no `program` — the JSON to calibrate."),
+        history: z.array(z.looseObject({})).optional()
+          .describe("Run records to use instead of the ones stored against `program_id` (`runs` schema 0.1.0-alpha)."),
+        k: z.number().int().min(1).optional()
+          .describe("Measurements a step needs before it gets a proposal (default 5). A step under it is reported as skipped with its statistics, not silently dropped."),
+        since: z.string().optional()
+          .describe("Only runs started on or after this date (YYYY-MM-DD or ISO), e.g. to calibrate on the last month's cooks only."),
+        accept: z.union([z.literal("all"), z.array(z.string())]).optional()
+          .describe("Step ids to accept, or \"all\". The result then also carries the calibrated program with `calibratedFrom` beside each written duration. NOTHING IS SAVED either way — pass that program to save_program if the user wants it kept."),
+        token: z.string().optional().describe("Your Rhylthyme access token from the login tool"),
+      },
+      annotations: Object.assign({ title: "Propose durations from recorded runs" }, ANN.read),
+    },
+    async ({ program, program_id: progId, history, k, since, accept, token }) => {
+      if (!token) return loginRequired("calibrate_program");
+      if (!progId && !(program && typeof program === "object")) {
+        return errorResult("Pass `program_id` (a UUID from list_my_programs) or the `program` JSON to calibrate.");
+      }
+      if (!progId && !Array.isArray(history)) {
+        return errorResult(
+          "Pass `program_id` so the recorded runs can be found, or `history` with the run records themselves. " +
+          "Calibration is a function of a program and its runs; without runs there is nothing but the author's guess.",
+        );
+      }
+      const body = {};
+      if (program && typeof program === "object") body.program = program;
+      if (progId) body.programId = progId;
+      if (Array.isArray(history)) body.history = history;
+      if (k !== undefined) body.k = k;
+      if (since) body.since = since;
+      if (accept !== undefined) body.accept = accept;
+      let resp;
+      try {
+        resp = await fetch(`${API_BASE}/api/mcp/calibrate`, fetchOpts({
+          method: "POST",
+          headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
+          body: JSON.stringify(body),
+        }, 30000));
+      } catch (e) {
+        return errorResult(`Could not reach rhylthyme.com to calibrate: ${e.message || e}`);
+      }
+      if (!resp.ok) return apiError("Could not calibrate", resp, await readErrorBody(resp));
+      let data;
+      try { data = await resp.json(); } catch (e) { data = null; }
+      const proposal = data && data.proposal;
+      if (!proposal || !Array.isArray(proposal.steps)) {
+        return errorResult("The calibrate endpoint returned no proposal.");
+      }
+      return {
+        content: [{ type: "text", text: formatCalibration(proposal, data.program || null) }],
+        structuredContent: data,
+      };
+    },
+  );
+}
+
+// ---------------------------------------------------------------------
+// The public run catalog (Phase 4). A contributed run is a run record
+// somebody opted to publish: notes removed, no user id, keyed only by the
+// canonical hash of the program JSON that was run. No login needed, because
+// there is nobody to authenticate as — the rows belong to no one.
+// ---------------------------------------------------------------------
+
+const PROGRAM_HASH_RE = /^sha256:[0-9a-f]{64}$/;
+
+// Fourth twin of rhylthyme_cli_runner/history/hash.py, after
+// rhylthyme-timeline/tools/hash-program.js and the copy inlined in
+// src/element.js. Inlined here for the same reason it is inlined there:
+// this file is byte-mirrored into rhylthyme-mcp and must not import
+// anything that lives outside mcp-api/ and static/.
+function _compareCodePoints(a, b) {
+  const ia = a[Symbol.iterator](), ib = b[Symbol.iterator]();
+  for (;;) {
+    const na = ia.next(), nb = ib.next();
+    if (na.done && nb.done) return 0;
+    if (na.done) return -1;
+    if (nb.done) return 1;
+    const ca = na.value.codePointAt(0), cb = nb.value.codePointAt(0);
+    if (ca !== cb) return ca < cb ? -1 : 1;
+  }
+}
+function _canonicalJson(value) {
+  if (value === null || typeof value !== "object") return JSON.stringify(value);
+  if (Array.isArray(value)) return "[" + value.map(_canonicalJson).join(",") + "]";
+  const keys = Object.keys(value).sort(_compareCodePoints);
+  return "{" + keys.map((k) => JSON.stringify(k) + ":" + _canonicalJson(value[k])).join(",") + "}";
+}
+function _programVersion(program) {
+  const crypto = require("crypto");
+  return "sha256:" + crypto.createHash("sha256").update(_canonicalJson(program), "utf8").digest("hex");
+}
+
+function _median(values) {
+  const sorted = values.filter((v) => typeof v === "number").sort((a, b) => a - b);
+  if (!sorted.length) return null;
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2;
+}
+
+function registerListPublicRuns(server, vertical) {
+  server.registerTool(
+    "list_public_runs",
+    {
+      title: "List contributed runs",
+      description: DESC.list_public_runs[vertical],
+      inputSchema: {
+        program_hash: z.string().optional()
+          .describe("Canonical program hash, \"sha256:\" plus 64 hex characters — the programVersion field of a run record, or programs.program_hash."),
+        program: AnyProgram.optional()
+          .describe("The program JSON to look up instead of a hash; it is hashed here with the same canonical hash the runtimes record."),
+        limit: z.number().int().min(1).max(200).optional()
+          .describe("How many contributed runs to return, newest first (default 50)."),
+      },
+      annotations: Object.assign({ title: "List contributed runs" }, ANN.read),
+    },
+    async ({ program_hash: programHash, program, limit }) => {
+      let hash = (programHash || "").trim();
+      if (!hash && program && typeof program === "object") {
+        try { hash = _programVersion(program); } catch (e) { hash = ""; }
+      }
+      if (!PROGRAM_HASH_RE.test(hash)) {
+        return errorResult(
+          "Pass either `program_hash` (\"sha256:\" plus 64 hex characters, from a run record's " +
+          "programVersion) or the `program` JSON to hash. Contributed runs are keyed by the exact " +
+          "program JSON that was run, so an edited program has no history until it is run again.",
+        );
+      }
+      try {
+        const url = `${API_BASE}/api/public/runs?programHash=${encodeURIComponent(hash)}` +
+          (limit ? `&limit=${encodeURIComponent(limit)}` : "");
+        const resp = await fetch(url, fetchOpts());
+        if (!resp.ok) return apiError("Could not list contributed runs", resp, await readErrorBody(resp));
+        const data = await resp.json();
+        const runs = data.runs || [];
+        if (runs.length === 0) {
+          return textResult(
+            `No contributed runs for program version \`${hash}\` yet.\n\n` +
+            "Contribution is opt-in per run and keyed by the exact program JSON, so a program that " +
+            "has been edited since it was last run starts again from nothing. The planned durations " +
+            "are all there is to go on for now.",
+          );
+        }
+        const lines = runs.map((r) => {
+          const when = (r.startedAt || "").replace("T", " ").replace(/\..*$/, "").replace("Z", " UTC");
+          const flags = [];
+          if (r.pausedSeconds) flags.push(`paused ${_fmtMinutes(r.pausedSeconds)}`);
+          if (r.speed && Number(r.speed) !== 1) flags.push(`${r.speed}× speed`);
+          if (r.clockMode && r.clockMode !== "wall") flags.push(`${r.clockMode} clock`);
+          const tags = r.userTags || {};
+          const tagKeys = Object.keys(tags);
+          if (tagKeys.length) flags.push(tagKeys.map((k) => `${k}=${tags[k]}`).join(", "));
+          return `- **${when}** — ${r.outcome} · actual ${_fmtMinutes(r.actualMakespanSeconds)} vs planned ` +
+            `${_fmtMinutes(r.plannedMakespanSeconds)}` +
+            _runDeviation(r.plannedMakespanSeconds, r.actualMakespanSeconds) +
+            (flags.length ? ` · ${flags.join(" · ")}` : "");
+        });
+        const medianActual = _median(runs.map((r) => r.actualMakespanSeconds));
+        const planned = _median(runs.map((r) => r.plannedMakespanSeconds));
+        const summary = medianActual === null
+          ? ""
+          : `\n\nMedian actual total across ${runs.length} contributed run${runs.length !== 1 ? "s" : ""}: ` +
+            `**${_fmtMinutes(medianActual)}** against a planned ${_fmtMinutes(planned)}` +
+            _runDeviation(planned, medianActual) + ".";
+        return textResult(
+          `${runs.length} contributed run${runs.length !== 1 ? "s" : ""} of program version \`${hash}\`, ` +
+          "newest first:\n\n" + lines.join("\n") + summary +
+          "\n\nContributed runs are anonymous: no account, no step notes, only timings and the " +
+          "variance factors each executor reported. Runs that were paused, or played faster than " +
+          "real time, measure the timer rather than the work.",
+        );
       } catch (e) {
         return errorResult(`Error: ${e.message || e}`);
       }
@@ -1757,22 +2483,28 @@ function registerPreviewTimeline(server, vertical) {
     {
       title: "Preview timeline image",
       description:
-        "Render a Rhylthyme program as a static Gantt-chart image so the user can SEE what the live timeline looks like, without committing to opening the live URL. Use this when the user asks for a 'preview' or 'picture' of the timeline, or when you have just built a freehand program and want to give the user a visual before they commit. The tool returns ONLY an image plus a one-line caption — no recipe prose, no ingredient list, no copyright concerns. Just the structural visualization of which step runs when on which track.\n\nPair with **visualize_schedule** when the user wants the full shareable interactive URL too. This tool is for the visual-only quick preview case.\n\n**Rendering option for HTML-artifact-capable clients (Claude.ai etc.):** Claude.ai's artifact sandbox blocks external scripts from non-cdnjs sources, so a `<script src=\"https://kitchen.rhylthyme.com/...\">` tag will fail. To render the timeline yourself with the official Rhylthyme look, call **get_renderer_source** first to fetch the renderer's full source as a string, then embed that source verbatim inside a `<script>…</script>` block in your HTML artifact, followed by your program JSON and a call to `Rhylthyme.renderTimeline(document.getElementById('t'), program)`. The renderer is open-source (Apache-2.0), zero-dependency, ~9KB.",
+        "Render a Rhylthyme program as a static Gantt-chart image so the user can SEE what the live timeline looks like, without committing to opening the live URL. Use this when the user asks for a 'preview' or 'picture' of the timeline, or when you have just built a freehand program and want to give the user a visual before they commit. The tool returns ONLY an image plus a one-line caption — no recipe prose, no ingredient list, no copyright concerns. Just the structural visualization of which step runs when on which track.\n\nPair with **visualize_schedule** when the user wants the full shareable interactive URL too. This tool is for the visual-only quick preview case.\n\n**Planned versus actual.** Pass `run` — a recorded run of the same program, as **load_run** returns it in `run` — and the picture becomes a comparison: each step's real bar over a thin ghost bar at its planned position, outlined green where it finished early and amber where it ran late. That is the fastest way to show a person where a plan drifted.\n\n**Rendering option for HTML-artifact-capable clients (Claude.ai etc.):** Claude.ai's artifact sandbox blocks external scripts from non-cdnjs sources, so a `<script src=\"https://kitchen.rhylthyme.com/...\">` tag will fail. To render the timeline yourself with the official Rhylthyme look, call **get_renderer_source** first to fetch the renderer's full source as a string, then embed that source verbatim inside a `<script>…</script>` block in your HTML artifact, followed by your program JSON and a call to `Rhylthyme.renderTimeline(document.getElementById('t'), program)`. The renderer is open-source (Apache-2.0), zero-dependency, ~9KB.",
       inputSchema: {
         program: AnyProgram.describe("Rhylthyme program JSON (same shape visualize_schedule accepts)."),
+        run: z.looseObject({}).optional()
+          .describe("Optional recorded run of the SAME program (`runs` schema 0.1.0-alpha — the `run` object from load_run). Draws planned-vs-actual: the actual bars over ghost bars at the planned positions, coloured by the sign of each step's end deviation."),
       },
       annotations: Object.assign({ title: "Preview timeline image" }, ANN.publish),
     },
-    async ({ program }) => {
+    async ({ program, run }) => {
       const tracks = (program && program.tracks) || [];
       const stepCount = tracks.reduce((n, t) => n + ((t && t.steps) || []).length, 0);
       if (!tracks.length || !stepCount) {
         return errorResult("Couldn't render a timeline — the program has no tracks/steps. Add at least one track with steps and try again.");
       }
       const totalSec = _programTotalSec(program);
+      const hasRun = !!(run && typeof run === "object" && Array.isArray(run.steps) && run.steps.length);
       const caption =
         `**${program.name || "Timeline"}** — ${tracks.length} track${tracks.length === 1 ? "" : "s"}, `
         + `${stepCount} step${stepCount === 1 ? "" : "s"}, ${_fmtMinutes(totalSec)} total. `
+        + (hasRun
+          ? `Planned versus actual for run \`${run.runId || "?"}\`: the thin ghost bar is the plan, the solid bar what happened. `
+          : "")
         + `Call **visualize_schedule** with the same program to get a shareable URL.`;
       // Always include the MCP `image` content block — that's the
       // canonical path Claude Desktop renders. Pair with a markdown
@@ -1780,8 +2512,10 @@ function registerPreviewTimeline(server, vertical) {
       // (Claude.ai web) also get an inline preview. No directives
       // telling the model how to format its reply — that reads as
       // prompt injection and gets correctly refused.
-      const image = buildTimelineImageBlock(program);
-      const share = await createShareForProgram(program);
+      const image = buildTimelineImageBlock(program, hasRun ? run : null);
+      // The OG endpoint renders the program alone, so a planned-vs-actual
+      // preview has no URL twin: the image block is the whole picture.
+      const share = hasRun ? null : await createShareForProgram(program);
       const captionWithImage = share && share.shareId
         ? `[Timeline image: ${ogTimelineUrlForShare(share.shareId, vertical)}]\n\n${caption}`
         : caption;
@@ -1856,7 +2590,7 @@ A program describes a real-time, multi-track process. The live runner
 
 \`\`\`json
 {
-  "schemaVersion": "0.1.0",
+  "schemaVersion": "0.3.0-alpha",
   "programId": "kebab-case-id",
   "name": "Human title",
   "description": "optional",
@@ -1887,13 +2621,19 @@ A program describes a real-time, multi-track process. The live runner
    in separate tracks.
 3. Every \`task\` used by a step needs a \`resourceConstraints\` entry
    with the same name (unless the program references an \`environment\`
-   or declares \`actors\`).
+   or declares \`actors\`). This includes steps inside an
+   \`instances: "each"\` chain: every instance claims the same task, so
+   one constraint entry covers them, but it must exist.
 4. Durations: \`fixed\` needs \`seconds\`; \`variable\` needs \`minSeconds\`
    + \`maxSeconds\` (+ \`defaultSeconds\` for planning); \`indefinite\` runs
    until the user ends it (give \`defaultSeconds\` so previews look right).
    Numbers are seconds; strings like \`"5m"\`, \`"1h30m"\`, \`"90s"\` also work.
 5. \`afterStep\` references must point at existing steps and must not form
    a cycle.
+6. \`instances\` may only reference a replicated step (or a step already
+   replicated by an \`"each"\` chain); an \`"each"\` step must not declare
+   its own \`replicates\`; \`maxInFlight\` must be <= \`count\`. See
+   "Repeating work" below for the codes.
 
 ## Triggers
 
@@ -1901,14 +2641,16 @@ A program describes a real-time, multi-track process. The live runner
 |----------------------|------------------------------------------|----------------------------------------------------|
 | programStart         | —                                        | at t = 0                                           |
 | programStartOffset   | offsetSeconds                            | at t = offset                                      |
-| afterStep            | stepId, offsetSeconds?, event?, choiceId? | when stepId ends (event="start": when it starts) + offset |
-| afterStepWithBuffer  | stepId, bufferSeconds                    | when stepId ends + buffer                          |
+| afterStep            | stepId, offsetSeconds?, event?, choiceId?, instances? | when stepId ends (event="start": when it starts) + offset |
+| afterStepWithBuffer  | stepId, bufferSeconds, instances?        | when stepId ends + buffer                          |
 | manual               | triggerName?                             | user taps to start                                 |
 | onAbort              | stepId                                   | only if stepId is aborted                          |
 | compound             | logic: "all" \\| "any", triggers: [...]   | wait for all / the first of several triggers       |
 
 Negative \`offsetSeconds\` ("start 20 min before the roast finishes")
-requires the referenced step to be \`indefinite\`.
+requires the referenced step to be \`indefinite\`. \`instances\`
+(\`"each" | "all" | "any"\`, default \`"all"\`) only applies when the
+referenced step is replicated — see "Repeating work" below.
 
 ## Finishing together
 
@@ -1917,7 +2659,120 @@ and delay the shorter ones with \`programStartOffset\`, or chain them
 \`afterStep\` off a step in the long track. \`analyze_schedule\` reports
 per-track slack; pass \`finishAt\` to get wall-clock start times.
 
-## Choice branching (schemaVersion "0.2.0-alpha")
+## Repeating work: per-instance chains, barriers and in-flight limits
+
+### \`replicates\`: do this step n times
+
+\`replicates\` on a step says "do this n times" without copying JSON:
+
+\`\`\`json
+"replicates": { "count": 3, "mode": "serial", "delay": "5m", "maxInFlight": 2 }
+\`\`\`
+
+- \`count\` — how many instances. Expansion names them \`<stepId>-r1\` …
+  \`<stepId>-r<n>\` and stamps \`instanceOf\` / \`instanceIndex\` on each.
+- \`mode\` — \`serial\` (one after another, in the same track), \`parallel\`
+  (all at once, each instance in its own sub-track), \`stagger\` (each
+  start \`delay\` after the previous one).
+- \`delay\` — the gap for \`stagger\` (\`"5m"\`, \`"90s"\`, or seconds).
+- \`maxInFlight\` — the work-in-progress cap; see below.
+
+### \`instances\`: per instance, every instance, or the first
+
+A trigger that references a replicated step says how it joins.
+\`instances\` goes on \`afterStep\` / \`afterStepWithBuffer\` (including
+inside \`compound\`):
+
+| instances        | meaning                                                                                 |
+|------------------|-----------------------------------------------------------------------------------------|
+| \`"all"\` (default) | one step that waits for EVERY instance — the barrier; this is what pre-0.3.0 programs already do, so leaving \`instances\` off never changes an existing schedule |
+| \`"each"\`         | the step is itself replicated, once per instance: instance i starts when instance i of the referenced step ends (\`offsetSeconds\` / \`bufferSeconds\` / \`event: "start"\` all still apply) |
+| \`"any"\`          | one step that starts when the FIRST instance ends                                       |
+
+\`"each"\` is transitive and inherits the count — never declare
+\`replicates\` on an \`"each"\` step. \`"all"\` and \`"any"\` collapse the chain
+back into a single step, which downstream steps then reference without
+\`instances\`. A \`compound\` may pair two \`"each"\` upstreams only if they
+have the same \`count\`.
+
+### \`maxInFlight\`: hold upstream, don't strand downstream
+
+\`maxConcurrent\` (on \`resourceConstraints\`) caps how many steps occupy
+one task at one instant. \`maxInFlight\` (on \`replicates\`) caps how many
+instances are *between* the replicated step and its barrier — a chain
+across time. Instance i is in flight from its start until instance i has
+finished every \`"each"\` descendant; instance i + \`maxInFlight\` may not
+start before that.
+
+Reach for \`maxInFlight\` whenever the limit is a holding area rather than
+a machine: a cooling rack that holds two trays, a rotor that holds six
+tubes, a taxiway that holds four aircraft, a bench with room for four
+open plates. \`"rack", maxConcurrent: 2\` alone would let the third tray
+bake anyway and then make it queue for a rack slot — a hot tray with
+nowhere to go. \`maxInFlight: 2\` holds the *bake* instead.
+
+With \`mode: "parallel"\` a \`maxInFlight\` below \`count\` turns the fan-out
+into a rolling window; with \`mode: "stagger"\` the delay becomes a
+minimum gap.
+
+### Worked example: three trays, one oven, a rack that holds two
+
+<!-- rhylthyme:example cookies-three-trays -->
+\`\`\`json
+{
+  "schemaVersion": "0.3.0-alpha",
+  "programId": "cookies-three-trays",
+  "name": "Three trays, one oven",
+  "environmentType": "kitchen",
+  "tracks": [
+    { "trackId": "cookies", "name": "Cookies", "steps": [
+      { "stepId": "mix", "name": "Mix dough", "task": "prep",
+        "duration": { "type": "fixed", "seconds": 900 },
+        "startTrigger": { "type": "programStart" } },
+      { "stepId": "bake", "name": "Bake tray", "task": "oven",
+        "duration": { "type": "fixed", "seconds": 720 },
+        "replicates": { "count": 3, "mode": "serial", "maxInFlight": 2 },
+        "startTrigger": { "type": "afterStep", "stepId": "mix" } },
+      { "stepId": "cool", "name": "Cool on rack", "task": "rack",
+        "duration": { "type": "fixed", "seconds": 900 },
+        "startTrigger": { "type": "afterStep", "stepId": "bake", "instances": "each" } },
+      { "stepId": "box", "name": "Box cookies", "task": "prep",
+        "duration": { "type": "fixed", "seconds": 300 },
+        "startTrigger": { "type": "afterStep", "stepId": "cool", "instances": "all" } }
+    ] }
+  ],
+  "resourceConstraints": [
+    { "task": "prep", "maxConcurrent": 1 },
+    { "task": "oven", "maxConcurrent": 1 },
+    { "task": "rack", "maxConcurrent": 2 }
+  ]
+}
+\`\`\`
+
+Minutes from start: mix 0–15; bake 15–27, 27–39, **42–54**; cool 27–42,
+39–54, 54–69; box 69–74. The third bake could start at 39 (the oven is
+free) but waits until 42, when the first tray leaves the rack.
+\`analyze_schedule\` reports the in-flight windows and names \`rack\`, not
+\`oven\`, as the binding constraint. The same shape covers "12 samples,
+the rotor holds 6" and "three landings, the taxiway holds two".
+
+### Findings you may see
+
+| code                    | what it means                                                                   |
+|-------------------------|---------------------------------------------------------------------------------|
+| \`E_INSTANCES_ON_SINGLE\` | \`instances\` on a step that is not replicated — remove it, or add \`replicates\` to the referenced step |
+| \`E_EACH_WITH_REPLICATES\`| a step has both an \`"each"\` trigger and its own \`replicates\` — drop the \`replicates\`, the count is inherited |
+| \`E_EACH_COUNT_MISMATCH\` | a \`compound\` \`"each"\` pairs two replicated steps with different \`count\`s     |
+| \`E_INFLIGHT_GT_COUNT\`   | \`maxInFlight\` is greater than \`count\`                                          |
+| \`E_INFLIGHT_NO_CHAIN\`   | \`maxInFlight\` on a \`serial\` replicate with no \`"each"\` descendants: nothing is ever held back |
+| \`W_UNBARRIERED_CHAIN\`   | warning: an \`"each"\` chain has no \`"all"\` barrier, yet later steps do not wait for it |
+| \`I_IMPLICIT_BARRIER\`    | info: a reference to a replicated step with no \`instances\`; the default \`"all"\` barrier applies. Add \`"all"\` to confirm it, or \`"each"\` if the work is per instance |
+
+## Predicted offsets (experimental)
+
+**\`metadata.offsetsUse\`.** Set it to \`"predicted"\` to let a negative \`offsetSeconds\` be resolved against a *predicted* end of the step it is anchored on instead of that step's authored \`defaultSeconds\`. It only affects negative offsets on \`indefinite\` anchors, and only when the program has enough recorded runs for a prediction whose interval is narrower than the authored \`defaultSeconds\`; otherwise the authored number is used unchanged. Nothing else in the program changes: every other trigger, and the plan \`analyze_schedule\` reports, still come from the durations as written. Leave it out (or set \`"planned"\`) and behaviour is exactly as before. It is worth setting on a program whose key step is genuinely open-ended (a roast, an incubation) and whose duration depends on something the program declares in \`metadata.varianceFactors\`; it is pointless on a program of fixed durations.
+
+## Choice branching (schemaVersion "0.2.0-alpha" and later)
 
 A step with \`"choice": {"prompt": "...", "options": [{"choiceId":"a","label":"A"},{"choiceId":"b","label":"B"}]}\`
 becomes a decision point; downstream steps with \`"startTrigger": {"type":"afterStep","stepId":"<choice step>","choiceId":"a"}\`
@@ -1928,6 +2783,17 @@ only run for that option.
 build → \`validate_program\` (fix every error) → \`analyze_schedule\`
 (optional; makespan, critical path, conflicts, wall clock) →
 \`visualize_schedule\` (publishes; returns the live URL, Gantt and itinerary).
+
+Before the build, when the program comes from a goal or from a source
+text (a recipe, a protocol, a run sheet), work through the four turns of
+the \`plan_schedule\` prompt — read the source back, confirm this model,
+extract the steps with the words each came from, and only then assign
+tracks and triggers. \`rhylthyme://guide/extraction\` carries those four
+turns as prose, with the expected output shape for each, for hosts that
+cannot run a multi-message prompt. It is also where
+\`metadata.sourceSpan\` (\`{"quote": "...", "occurrence": n}\`) and
+\`metadata.inferred\` are defined: keep both on every step so the editor
+can show where a step came from.
 `;
 
 function registerResources(server, vertical) {
@@ -1948,11 +2814,23 @@ function registerResources(server, vertical) {
     "rhylthyme://guide/authoring",
     {
       title: "Rhylthyme authoring guide",
-      description: "One-page cheat-sheet: program shape, the rules validate_program enforces, every trigger type, how to make tracks finish together, choice branching, and the recommended tool workflow.",
+      description: "One-page cheat-sheet: program shape, the rules validate_program enforces, every trigger type, how to make tracks finish together, repeated work (replicates, per-instance `instances` chains, barriers and `maxInFlight`), choice branching, and the recommended tool workflow.",
       mimeType: "text/markdown",
     },
     async (uri) => ({
       contents: [{ uri: uri.href, mimeType: "text/markdown", text: AUTHORING_GUIDE }],
+    }),
+  );
+  server.registerResource(
+    "extraction-guide",
+    "rhylthyme://guide/extraction",
+    {
+      title: "Rhylthyme extraction guide (the four turns)",
+      description: "The four-turn structure the plan_schedule prompt sends — read-back, model check, step extraction with source spans, then tracks and triggers — as prose with each turn's expected output shape, for hosts that cannot run a multi-message prompt.",
+      mimeType: "text/markdown",
+    },
+    async (uri) => ({
+      contents: [{ uri: uri.href, mimeType: "text/markdown", text: Prompts.EXTRACTION_GUIDE }],
     }),
   );
   Object.keys(EXAMPLE_PROGRAMS).forEach((key) => {
@@ -1977,45 +2855,41 @@ function registerResources(server, vertical) {
 // ---------------------------------------------------------------------
 
 function registerPrompts(server, vertical) {
-  const cfg = VERTICALS[vertical] || VERTICALS.generic;
+  const key = VERTICALS[vertical] ? vertical : "generic";
+  const cfg = VERTICALS[key];
   const nouns = {
     generic: { thing: "schedule", example: "Thanksgiving dinner for 8 with one oven, ready at 6pm" },
     kitchen: { thing: "meal", example: "Thanksgiving dinner for 8 with one oven, ready at 6pm" },
     lab: { thing: "protocol", example: "Western blot for 12 samples with one transfer apparatus" },
     events: { thing: "run-of-show", example: "wedding ceremony at 2pm, reception at 5pm, one PA system" },
     gym: { thing: "workout", example: "45-minute upper-body superset session" },
-  }[vertical] || { thing: "schedule", example: "a multi-step process" };
+  }[key] || { thing: "schedule", example: "a multi-step process" };
 
+  // Four user messages, not one: the host sends them in order in one
+  // conversation, so each turn sees the previous answers. Separating
+  // extraction (T3) from relationship inference (T4) is the point --
+  // relationships are the component that goes wrong. See prompts.js.
   server.registerPrompt(
     "plan_schedule",
     {
       title: `Plan a ${nouns.thing} as a live timeline`,
-      description: `Turn a goal ("${nouns.example}") into a validated Rhylthyme program and a live timeline URL. Walks the model through search → build → validate → analyze → visualize.`,
+      description: `Turn a goal ("${nouns.example}"), or a source text, into a validated Rhylthyme program and a live timeline URL. Four turns: read the source back, confirm the program model, extract the steps with the words each came from, then assign tracks and triggers and run validate → analyze → visualize.`,
       argsSchema: {
         goal: z.string().describe(`What to plan, e.g. "${nouns.example}".`),
         finishAt: z.string().optional().describe("Optional ISO datetime everything must be done by (used for wall-clock start times)."),
         constraints: z.string().optional().describe("Optional equipment / people limits, e.g. 'one oven, two burners, 2 cooks'."),
+        sourceText: z.string().optional().describe("Optional source text to extract from: a recipe, a protocol, a run sheet. Embedded in turns 1 and 3; without it the steps are extracted from the goal alone."),
       },
     },
-    ({ goal, finishAt, constraints }) => ({
-      messages: [{
-        role: "user",
-        content: {
-          type: "text",
-          text: [
-            `Plan this as a Rhylthyme ${nouns.thing} and deliver a live timeline: ${goal}`,
-            constraints ? `Resource limits: ${constraints}.` : "",
-            finishAt ? `Everything must be finished by ${finishAt}.` : "",
-            "",
-            "Steps:",
-            "1. Check the public catalog first (search_public_recipes" + (cfg.oneShot ? ` or ${cfg.oneShot.name}` : "") + "). If a good match exists, use it and stop — its result already has the live URL.",
-            "2. Otherwise read rhylthyme://guide/authoring and build a program: one track per parallel line of work, sequential steps chained with afterStep, realistic durations, and a resourceConstraint for every task.",
-            "3. Run validate_program and fix every error it reports.",
-            "4. Run analyze_schedule" + (finishAt ? ` with finishAt="${finishAt}"` : "") + " to check the makespan, critical path and resource conflicts; adjust offsets so tracks finish together.",
-            "5. Call visualize_schedule and give the user the live URL plus the Gantt/itinerary from the result. Do not describe the schedule in prose.",
-          ].filter(Boolean).join("\n"),
-        },
-      }],
+    ({ goal, finishAt, constraints, sourceText }) => ({
+      messages: Prompts.renderFourTurns({
+        goal,
+        finishAt,
+        constraints,
+        sourceText,
+        vertical: key,
+        oneShot: cfg.oneShot ? cfg.oneShot.name : null,
+      }).map((turn) => ({ role: "user", content: { type: "text", text: turn.text } })),
     }),
   );
 }
@@ -2025,10 +2899,15 @@ function _registerAll(server, vertical) {
   registerAnalyzeSchedule(server, vertical);
   registerVisualizeSchedule(server, vertical);
   registerImportFromSource(server, vertical);
+  registerImportText(server, vertical);
   registerCreateEnvironment(server, vertical);
   registerLogin(server, vertical);
   registerListMyPrograms(server, vertical);
   registerLoadProgram(server, vertical);
+  registerListRuns(server, vertical);
+  registerLoadRun(server, vertical);
+  registerCalibrateProgram(server, vertical);
+  registerListPublicRuns(server, vertical);
   registerSearchPublicRecipes(server, vertical);
   registerLoadPublicRecipe(server, vertical);
   registerSaveProgram(server, vertical);
@@ -2270,4 +3149,6 @@ module.exports._serverInstructions = serverInstructions;
 module.exports._schemas = { Program, AnyProgram };
 module.exports._VERTICALS = VERTICALS;
 module.exports._programTotalSec = _programTotalSec;
+module.exports._renderSvgGantt = renderSvgGantt;
 module.exports.inlineCdnScripts = inlineCdnScripts;
+module.exports._prompts = Prompts;

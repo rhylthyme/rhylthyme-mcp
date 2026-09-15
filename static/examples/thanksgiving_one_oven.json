@@ -256,6 +256,10 @@
     }
   ],
   "metadata": {
-    "serves": "8"
+    "serves": "8",
+    "varianceFactors": [
+      { "key": "turkeyKg", "label": "Turkey weight (kg)", "type": "number", "unit": "kg" },
+      { "key": "oven", "label": "Oven type", "type": "enum", "values": ["gas", "electric", "convection"] }
+    ]
   }
 }
