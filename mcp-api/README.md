@@ -562,6 +562,43 @@ Routing lives in `vercel.json` (`/mcp`, `/<vertical>/mcp` and
 `SUPABASE_URL` and `SUPABASE_ANON_KEY` for the OG image only; every tool
 goes through `https://www.rhylthyme.com/api/*`.
 
+## Usage analytics
+
+`analytics.js` writes one row per JSON-RPC request (not notifications or
+pings) to the Supabase `mcp_events` table after the response has been
+sent. A row holds the endpoint, method, tool/resource/prompt name, the
+client's self-reported `clientInfo` from `initialize`, success or error
+code, latency, the Vercel country header, and a few non-content argument
+fields (`source`, `action`, `environmentType`, `enrich`, which argument
+keys were present). It never stores IP addresses, argument values,
+program JSON, pasted text or tokens.
+
+The server is stateless, so there is no session id. Distinct clients are
+counted by `client_hash`, a salted SHA-256 of IP + User-Agent (salt:
+`MCP_ANALYTICS_SALT`, falling back to the service-role key; rotating the
+salt resets client identity). `user_id` is the unverified `sub` of a
+login token, used only to recognise and exclude the operator's own
+clients.
+
+Recording is on when `SUPABASE_URL` and `SUPABASE_SERVICE_ROLE_KEY` are
+set; set `MCP_ANALYTICS_DISABLED=1` to turn it off. Failed inserts log a
+warning and never affect the MCP response.
+
+Setup and reporting:
+
+```bash
+# once: create the table and reporting views in the Supabase SQL editor
+cat sql/mcp_events.sql
+
+# any time: daily clients, MCP clients, tools, funnel, returning clients
+.venv/bin/python rhylthyme-server/scripts/mcp_usage_report.py --days 30
+```
+
+In the SQL editor, `mcp_daily_usage`, `mcp_tool_usage_30d` and
+`mcp_clients_30d` give the same numbers. All views read
+`mcp_external_events`, which drops every client that ever presented the
+operator's user id.
+
 ## Publishing to the MCP registry
 
 `server.json` in this directory is the registry manifest. Publish with

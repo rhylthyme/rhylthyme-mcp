@@ -48,6 +48,7 @@ const { z } = require("zod");
 const TimelineRender = require("../static/js/timeline-render.js");
 const Schedule = require("./schedule.js");
 const Prompts = require("./prompts.js");
+const Analytics = require("./analytics.js");
 // Bundled copies of the spec + a few example programs, exposed as MCP
 // resources. Kept under static/ so the same files are also fetchable
 // over HTTPS (www.rhylthyme.com/static/schema/…, /static/examples/…).
@@ -3113,6 +3114,13 @@ module.exports = async function handler(req, res) {
     duplex: "half",
   });
 
+  // Usage analytics (see analytics.js). Null when disabled or when the
+  // body holds nothing worth logging; rows are written after res.end()
+  // so the client never waits on the insert.
+  const tracker = req.method === "POST"
+    ? Analytics.begin(body, { vertical, headers: req.headers })
+    : null;
+
   try {
     const webResponse = await webHandler(webRequest);
     res.statusCode = webResponse.status;
@@ -3125,6 +3133,7 @@ module.exports = async function handler(req, res) {
         while (true) {
           const { done, value } = await reader.read();
           if (done) { res.end(); break; }
+          if (tracker) tracker.capture(value);
           res.write(value);
         }
       };
@@ -3132,11 +3141,13 @@ module.exports = async function handler(req, res) {
     } else {
       res.end();
     }
+    if (tracker) await tracker.finish(webResponse.status);
   } catch (e) {
     console.error("MCP handler error:", e);
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify({ error: e.message || "Internal server error" }));
+    if (tracker) await tracker.finish(500);
   }
 };
 
@@ -3152,3 +3163,4 @@ module.exports._programTotalSec = _programTotalSec;
 module.exports._renderSvgGantt = renderSvgGantt;
 module.exports.inlineCdnScripts = inlineCdnScripts;
 module.exports._prompts = Prompts;
+module.exports._analytics = Analytics;
