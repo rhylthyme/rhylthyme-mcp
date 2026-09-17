@@ -126,6 +126,41 @@ test("a failing sink never breaks the tracker", async () => {
   }
 });
 
+test("waitUntil uses the Vercel request context when present", async () => {
+  const sym = Symbol.for("@vercel/request-context");
+  const prev = globalThis[sym];
+  const seen = [];
+  try {
+    assert.equal(Analytics.waitUntil(Promise.resolve()), prev ? Analytics.waitUntil(Promise.resolve()) : false);
+    globalThis[sym] = { get: () => ({ waitUntil: (p) => seen.push(p) }) };
+    const p = Promise.resolve();
+    assert.equal(Analytics.waitUntil(p), true);
+    assert.equal(seen[0], p);
+  } finally {
+    globalThis[sym] = prev;
+  }
+});
+
+test("insert retries once on timeout, then gives up quietly", async () => {
+  const realFetch = global.fetch;
+  let calls = 0;
+  global.fetch = async () => {
+    calls++;
+    const e = new Error("The operation was aborted due to timeout");
+    e.name = "TimeoutError";
+    throw e;
+  };
+  try {
+    const body = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }));
+    const t = Analytics.begin(body, { vertical: "generic", headers: {} },
+      { SUPABASE_URL: "https://example.invalid", SUPABASE_SERVICE_ROLE_KEY: "k" });
+    await t.finish(200);
+    assert.equal(calls, 2);
+  } finally {
+    global.fetch = realFetch;
+  }
+});
+
 // ---- through the Vercel entry point ---------------------------------------
 
 function fakeReq(method, url, body, headers) {

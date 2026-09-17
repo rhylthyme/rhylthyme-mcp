@@ -3141,13 +3141,19 @@ module.exports = async function handler(req, res) {
     } else {
       res.end();
     }
-    if (tracker) await tracker.finish(webResponse.status);
+    if (tracker) {
+      const done = tracker.finish(webResponse.status);
+      if (!Analytics.waitUntil(done)) await done;
+    }
   } catch (e) {
     console.error("MCP handler error:", e);
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
     res.end(JSON.stringify({ error: e.message || "Internal server error" }));
-    if (tracker) await tracker.finish(500);
+    if (tracker) {
+      const done = tracker.finish(500);
+      if (!Analytics.waitUntil(done)) await done;
+    }
   }
 };
 

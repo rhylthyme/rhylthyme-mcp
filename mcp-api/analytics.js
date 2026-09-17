@@ -22,8 +22,11 @@
 // no clientInfo; `client_hash` is what links it back to the initialize
 // that preceded it.
 //
-// Recording never throws and never delays the MCP response: the handler
-// calls `record()` after `res.end()`, and the insert has a short timeout.
+// Recording never throws and never delays the MCP response: rows are
+// written after `res.end()`, handed to Vercel's `waitUntil` so the
+// function is not suspended mid-insert, which is the likely cause of the
+// earlier sporadic "aborted due to timeout" warnings. 5 s timeout, one
+// retry on timeout or network error.
 // It is a no-op unless SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set
 // and MCP_ANALYTICS_DISABLED is not.
 //
@@ -37,7 +40,8 @@ const crypto = require("crypto");
 const SKIP_METHODS = new Set(["ping"]);
 const SAFE_ARG_FIELDS = ["source", "action", "environmentType", "enrich", "vertical"];
 const MAX_RESPONSE_SCAN = 4 * 1024 * 1024; // bytes of response kept for outcome parsing
-const INSERT_TIMEOUT_MS = 1500;
+const INSERT_TIMEOUT_MS = 5000;
+const INSERT_ATTEMPTS = 2;
 
 function _str(v, max) {
   if (v === undefined || v === null) return null;
@@ -206,6 +210,17 @@ function enabled(env) {
 async function insertRows(rows, env) {
   env = env || process.env;
   if (_sink) return _sink(rows);
+  for (let attempt = 1; ; attempt++) {
+    try {
+      return await _insertOnce(rows, env);
+    } catch (e) {
+      const transient = e && (e.name === "TimeoutError" || e.name === "AbortError" || e.name === "TypeError");
+      if (!transient || attempt >= INSERT_ATTEMPTS) throw e;
+    }
+  }
+}
+
+async function _insertOnce(rows, env) {
   const resp = await fetch(`${env.SUPABASE_URL}/rest/v1/mcp_events`, {
     method: "POST",
     headers: {
@@ -220,6 +235,17 @@ async function insertRows(rows, env) {
   if (!resp.ok) {
     console.warn(`mcp analytics insert failed: ${resp.status} ${(await resp.text()).slice(0, 200)}`);
   }
+}
+
+// Vercel's per-request waitUntil (what @vercel/functions reads), or null
+// outside Vercel. Keeps the instance alive for work after the response.
+function waitUntil(promise) {
+  try {
+    const ctx = globalThis[Symbol.for("@vercel/request-context")];
+    const fn = ctx && typeof ctx.get === "function" ? (ctx.get() || {}).waitUntil : null;
+    if (typeof fn === "function") { fn(promise); return true; }
+  } catch (_) { /* fall through */ }
+  return false;
 }
 
 // Start tracking one HTTP request. Returns null when there is nothing to
@@ -249,7 +275,8 @@ function begin(bodyBuf, ctx, env) {
           applyOutcome(events, text, status, Date.now() - started);
           await insertRows(events.map(toRow), env);
         } catch (e) {
-          console.warn("mcp analytics error:", e && e.message ? e.message : e);
+          console.warn(`mcp analytics error (${events.length} rows, ${events.map((x) => x.method).join(",")}):`,
+            e && e.message ? e.message : e);
         }
       },
     };
@@ -261,6 +288,7 @@ function begin(bodyBuf, ctx, env) {
 
 module.exports = {
   begin,
+  waitUntil,
   setSink,
   enabled,
   parseRequests,
