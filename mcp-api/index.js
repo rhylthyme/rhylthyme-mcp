@@ -2933,7 +2933,9 @@ function getHandler(vertical) {
           serverInfo: { name: VERTICALS[key].serverName, version: SERVER_VERSION },
           instructions: serverInstructions(key),
         },
-        { basePath: "", maxDuration: 60 },
+        // import_text waits up to 120 s on the Flask side (four model
+        // turns); leave headroom so the MCP function is not the one cut off.
+        { basePath: "", maxDuration: 180 },
       );
     })().catch((e) => { _handlerPromises[key] = null; throw e; });
   }
@@ -3065,6 +3067,29 @@ async function handleOgTimeline(req, res) {
 // Vercel function entry
 // ---------------------------------------------------------------------
 
+// A stateless POST gets exactly one SSE stream holding its JSON-RPC
+// response(s). For clients that did not accept text/event-stream, return
+// the response as a plain JSON body instead (an array for batches).
+async function sseToJson(webResponse) {
+  const type = webResponse.headers.get("content-type") || "";
+  if (!type.includes("text/event-stream")) return webResponse;
+  const text = await webResponse.text();
+  const messages = [];
+  for (const line of text.split("\n")) {
+    if (!line.startsWith("data:")) continue;
+    try { messages.push(JSON.parse(line.slice(5).trim())); } catch (_) { /* keep-alive or partial */ }
+  }
+  const replies = messages.filter((m) => m && m.id !== undefined && (m.result !== undefined || m.error !== undefined));
+  const headers = new Headers(webResponse.headers);
+  headers.set("content-type", "application/json");
+  headers.delete("content-length");
+  if (!replies.length) return new Response(null, { status: 202, headers });
+  return new Response(JSON.stringify(replies.length === 1 ? replies[0] : replies), {
+    status: webResponse.status,
+    headers,
+  });
+}
+
 module.exports = async function handler(req, res) {
   const reqUrl = req.url || "";
 
@@ -3103,13 +3128,25 @@ module.exports = async function handler(req, res) {
     });
   }
 
+  // Streamable HTTP requires POSTs to accept both application/json and
+  // text/event-stream, and the SDK answers anything else with 406. Simple
+  // clients (uptime checkers, directory crawlers, curl) often send */* or
+  // application/json alone, so accept them: ask the SDK for both, and if
+  // the client did not accept a stream, unwrap the SSE reply into JSON.
+  const acceptHeader = String(req.headers.accept || "").toLowerCase();
+  const clientTakesSse = acceptHeader.includes("text/event-stream");
+  const lenientAccept = req.method === "POST" &&
+    !(clientTakesSse && acceptHeader.includes("application/json"));
+  const forwardHeaders = Object.fromEntries(
+    Object.entries(req.headers)
+      .filter(([, v]) => v !== undefined)
+      .map(([k, v]) => [k, Array.isArray(v) ? v.join(", ") : v]),
+  );
+  if (lenientAccept) forwardHeaders.accept = "application/json, text/event-stream";
+
   const webRequest = new Request(url, {
     method: req.method,
-    headers: Object.fromEntries(
-      Object.entries(req.headers)
-        .filter(([, v]) => v !== undefined)
-        .map(([k, v]) => [k, Array.isArray(v) ? v.join(", ") : v]),
-    ),
+    headers: forwardHeaders,
     body: body,
     duplex: "half",
   });
@@ -3122,7 +3159,8 @@ module.exports = async function handler(req, res) {
     : null;
 
   try {
-    const webResponse = await webHandler(webRequest);
+    let webResponse = await webHandler(webRequest);
+    if (lenientAccept && !clientTakesSse) webResponse = await sseToJson(webResponse);
     res.statusCode = webResponse.status;
     for (const [key, value] of webResponse.headers.entries()) {
       res.setHeader(key, value);

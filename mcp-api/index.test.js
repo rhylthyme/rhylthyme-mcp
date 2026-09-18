@@ -574,6 +574,29 @@ test("HTTP entry: tools/call validate_program over Streamable HTTP", async () =>
   assert.equal(rpc.result.structuredContent.valid, true);
 });
 
+test("HTTP entry: clients that don't accept SSE still get a JSON reply, not 406", async () => {
+  for (const accept of ["*/*", "application/json", undefined]) {
+    const req = fakeReq("POST", "/mcp", { jsonrpc: "2.0", id: 9, method: "tools/list" }, { accept });
+    if (accept === undefined) delete req.headers.accept;
+    const res = fakeRes();
+    await handler(req, res);
+    await res.done;
+    assert.equal(res.statusCode, 200, `${accept}: ${res.text().slice(0, 200)}`);
+    assert.match(res.headers["content-type"], /application\/json/);
+    const rpc = JSON.parse(res.text());
+    assert.equal(rpc.id, 9);
+    assert.ok(rpc.result.tools.some((t) => t.name === "validate_program"));
+  }
+});
+
+test("HTTP entry: SSE-capable clients still get the event stream", async () => {
+  const res = fakeRes();
+  await handler(fakeReq("POST", "/mcp", { jsonrpc: "2.0", id: 10, method: "tools/list" }), res);
+  await res.done;
+  assert.equal(res.statusCode, 200);
+  assert.match(res.headers["content-type"], /text\/event-stream/);
+});
+
 test("import_text is registered with its schema, annotations and login gate", async () => {
   const { client } = await connect("kitchen");
   const { tools } = await client.listTools();

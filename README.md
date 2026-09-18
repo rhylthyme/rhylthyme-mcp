@@ -28,6 +28,61 @@ catalog or the pure tools; account tools take a per-user token from the
 `login` tool. Server `instructions` describing the workflow are sent at
 `initialize`.
 
+## Quickstart: timelines from the command line
+
+The `rhylthyme` CLI can drive this server directly: describe what you
+need in plain language and get back a live timeline URL, a program file,
+or both.
+
+```bash
+pip install --upgrade rhylthyme-cli-runner   # 0.2.0a0 or later, Python 3.12+
+rhylthyme login                              # opens rhylthyme.com in your browser
+rhylthyme generate "roast chicken, potatoes and green beans for 6" \
+    -e kitchen --by 19:00 --with "one oven, four burners, one cook"
+```
+
+`login` signs you in through the browser and hands the session back to a
+one-shot listener on `127.0.0.1`. It is stored in
+`~/.config/rhylthyme/credentials.json` (mode 0600) and renews itself, so
+you only log in once. `generate` then calls two tools on this server:
+
+1. **`import_text`** on the endpoint for `-e` (`/kitchen/mcp`,
+   `/lab/mcp`, …) turns the request into a validated multi-track program.
+   It runs four model turns server-side, which is why it needs a sign-in;
+   it takes 20–60 seconds and is capped per day.
+2. **`visualize_schedule`** publishes that program and returns the
+   live-timeline URL on the matching subdomain.
+
+It prints the ASCII Gantt, the itinerary and the URL. More examples:
+
+```bash
+# A lab protocol from a file; save the program and run it in the terminal
+rhylthyme generate -e lab -f western_blot.txt -o blot.json --run
+
+# Pipe a run sheet in; print only the URL
+pbpaste | rhylthyme generate -e events --by "doors at 18:30" -q
+
+# Program JSON only, no published timeline; machine-readable output
+rhylthyme generate -e gym "45 minute upper-body circuit, two people, one bench" --no-publish --json
+```
+
+| Flag | Meaning |
+|---|---|
+| `-e, --env` | `generic` (default), `kitchen`, `lab`, `events` or `gym`. Picks the endpoint and the timeline site. |
+| `--by` | When everything must be finished: `19:00`, `dinner at 7pm`. |
+| `--with` | Equipment and people limits in your own words. |
+| `-f, --file` | Read the request or source text from a file, or `-` for stdin. |
+| `-o, --output` | Save the program JSON. |
+| `--run` | Run the program in the terminal runner afterwards. |
+| `--open` | Open the live timeline in a browser. |
+| `--no-publish`, `--json`, `-q` | Skip publishing; print JSON; print only the URL. |
+
+`rhylthyme whoami` shows the stored sign-in; `rhylthyme logout` forgets it.
+On a machine without a browser, set `RHYLTHYME_TOKEN` to an access token
+from <https://www.rhylthyme.com/mcp/auth> (it lasts about an hour), or
+run `rhylthyme login --token <token>`. `RHYLTHYME_MCP_URL` points the CLI
+at a self-hosted server.
+
 ## Connect
 
 **Claude Code**
