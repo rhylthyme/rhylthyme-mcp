@@ -484,6 +484,12 @@ const SingleTrigger = z.looseObject({
 });
 
 const StartTrigger = SingleTrigger.extend({
+  // Models often label a logic/triggers compound with type "compound". Every
+  // consumer (validator, timing engine, runner) detects a compound by
+  // logic + triggers and ignores the label, so accept it instead of failing
+  // input validation on an otherwise valid program.
+  type: z.enum(["programStart", "programStartOffset", "afterStep", "afterStepWithBuffer", "manual", "onAbort", "compound"]).optional()
+    .describe("As for a single trigger; \"compound\" is an optional label for a logic/triggers trigger."),
   logic: z.enum(["all", "any"]).optional().describe("Compound trigger: wait for all / any of `triggers`."),
   triggers: z.array(SingleTrigger).optional(),
 });

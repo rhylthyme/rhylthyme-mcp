@@ -597,6 +597,19 @@ test("HTTP entry: SSE-capable clients still get the event stream", async () => {
   assert.match(res.headers["content-type"], /text\/event-stream/);
 });
 
+test("Program input schema accepts a compound trigger labelled type: \"compound\"", () => {
+  const p = JSON.parse(JSON.stringify(GOOD));
+  p.tracks[1].steps[1].startTrigger = {
+    type: "compound", logic: "all",
+    triggers: [{ type: "afterStep", stepId: "rest" }, { type: "afterStep", stepId: "heat" }],
+  };
+  assert.equal(handler._schemas.Program.safeParse(p).success, true);
+  assert.equal(Schedule.validateProgram(p).valid, true);
+  // Inner triggers stay strict.
+  p.tracks[1].steps[1].startTrigger.triggers[0].type = "compound";
+  assert.equal(handler._schemas.Program.safeParse(p).success, false);
+});
+
 test("import_text is registered with its schema, annotations and login gate", async () => {
   const { client } = await connect("kitchen");
   const { tools } = await client.listTools();
