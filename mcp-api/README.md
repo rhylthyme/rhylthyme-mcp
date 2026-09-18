@@ -599,7 +599,34 @@ In the SQL editor, `mcp_daily_usage`, `mcp_tool_usage_30d` and
 `mcp_external_events`, which drops every client that ever presented the
 operator's user id.
 
-## Publishing to the MCP registry
+## Errors and alerts
+
+Every failed request is one JSON line in the function log, whether or not
+analytics rows are being written. In Vercel > Logs, filter on `mcp-error`
+(something is broken) or `mcp-warn` (a client mistake or an expected
+refusal):
+
+```
+[mcp-error] {"endpoint":"lab","method":"tools/call","tool":"import_text","code":"tool_error","status":200,"ms":28114,"message":"Text import failed (failed at T4) (502): ...","client":"12b78a","ua":"claude-ai","country":"US"}
+```
+
+`mcp-error` lines are also posted to `MCP_ALERT_WEBHOOK_URL` (a Slack
+incoming webhook; falls back to `SLACK_FEEDBACK_WEBHOOK_URL`). They cover
+tool errors, 5xx responses, internal RPC errors and `tools/call` requests
+whose arguments the input schema rejected. Alerts are throttled to one
+per endpoint + tool + code every 15 minutes (the next one says how many
+were suppressed) and never more than one every 20 seconds per instance.
+Login-required and expired-token refusals, unknown methods from crawlers,
+4xx probes and `rhylthyme mcp-test` traffic are logged but not alerted.
+Set `MCP_ALERTS_DISABLED=1` to turn alerts off. The error message stays in
+the log and the alert; it is never written to `mcp_events`.
+
+To check the server end to end, run `rhylthyme mcp-test` (from
+`rhylthyme-cli-runner`); add `--publish` to include a real share.
+
+The lab, events and gym catalogs are seeded from `rhylthyme-examples` by
+`scripts/seed_vertical_catalog.py` (idempotent; `--remove` undoes it).
+
 
 `server.json` in this directory is the registry manifest. Publish with
 the `mcp-publisher` CLI after verifying the `com.rhylthyme` namespace

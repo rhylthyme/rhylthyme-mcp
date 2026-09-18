@@ -27,8 +27,21 @@
 // function is not suspended mid-insert, which is the likely cause of the
 // earlier sporadic "aborted due to timeout" warnings. 5 s timeout, one
 // retry on timeout or network error.
-// It is a no-op unless SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are set
-// and MCP_ANALYTICS_DISABLED is not.
+// Rows are only written when SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are
+// set and MCP_ANALYTICS_DISABLED is not.
+//
+// Failures are also reported, whether or not rows are written:
+//   * every failed request is one `[mcp-error]` / `[mcp-warn]` JSON line in
+//     the function log (Vercel > Logs, filter on "mcp-error"). The line
+//     carries the server's own error message; that message stays in the
+//     log and is never written to the table.
+//   * failures that mean something is broken (a tool erroring, a 5xx, an
+//     internal RPC error, a tools/call whose arguments the schema rejected)
+//     are posted to MCP_ALERT_WEBHOOK_URL (falling back to
+//     SLACK_FEEDBACK_WEBHOOK_URL), throttled per endpoint+tool+code so a
+//     retry storm is one message. Expected refusals (login required,
+//     expired token), unknown methods from crawlers, 4xx probes, and the
+//     CLI's own `mcp-test` traffic are logged but never alerted.
 //
 // Standalone module with no imports from index.js; mirrored byte-for-byte
 // into rhylthyme-mcp by tools/check_mirrors.sh.
@@ -42,6 +55,10 @@ const SAFE_ARG_FIELDS = ["source", "action", "environmentType", "enrich", "verti
 const MAX_RESPONSE_SCAN = 4 * 1024 * 1024; // bytes of response kept for outcome parsing
 const INSERT_TIMEOUT_MS = 5000;
 const INSERT_ATTEMPTS = 2;
+const ALERT_TIMEOUT_MS = 4000;
+const ALERT_REPEAT_MS = 15 * 60 * 1000; // same endpoint+tool+code at most this often
+const ALERT_MIN_GAP_MS = 20 * 1000;     // and never faster than this overall
+const EXPECTED_REFUSAL = /requires the user's Rhylthyme access token|not authorized \(40[13]\)|Token verification failed/i;
 
 function _str(v, max) {
   if (v === undefined || v === null) return null;
@@ -181,9 +198,12 @@ function applyOutcome(events, responseText, httpStatus, durationMs) {
     } else if (r.error) {
       ev.ok = false;
       ev.error_code = _str(`rpc_${r.error.code}`, 40);
+      ev.error_message = _oneLine(r.error.message);
     } else if (r.result && r.result.isError) {
       ev.ok = false;
       ev.error_code = "tool_error";
+      const first = (r.result.content || []).find((c) => c && c.type === "text");
+      ev.error_message = _oneLine(first && first.text);
     } else {
       ev.ok = true;
       ev.error_code = null;
@@ -192,9 +212,90 @@ function applyOutcome(events, responseText, httpStatus, durationMs) {
   return events;
 }
 
+function _oneLine(text) {
+  return text ? _str(String(text).replace(/\s+/g, " ").trim(), 400) : null;
+}
+
 function toRow(ev) {
-  const { rpc_id, ...row } = ev; // rpc_id only pairs requests with responses
+  // rpc_id only pairs requests with responses; error_message is for the
+  // function log and alerts, never the table.
+  const { rpc_id, error_message, ...row } = ev;
   return row;
+}
+
+// "alert": something is broken. "warn": a client mistake or an expected
+// refusal, worth a log line only. null: not a failure.
+function severity(ev) {
+  if (ev.ok !== false) return null;
+  const code = ev.error_code || "";
+  if (code === "tool_error") return EXPECTED_REFUSAL.test(ev.error_message || "") ? "warn" : "alert";
+  if (/^http_5/.test(code) || code === "rpc_-32603") return "alert";
+  if (code === "rpc_-32602" && ev.method === "tools/call") return "alert";
+  return "warn";
+}
+
+function logFailures(events) {
+  const failed = [];
+  for (const ev of events) {
+    const level = severity(ev);
+    if (!level) continue;
+    failed.push({ ev, level });
+    const line = JSON.stringify({
+      endpoint: ev.endpoint, method: ev.method, tool: ev.tool, code: ev.error_code,
+      status: ev.http_status, ms: ev.duration_ms, message: ev.error_message || null,
+      client: ev.client_hash ? ev.client_hash.slice(0, 6) : null, ua: ev.user_agent, country: ev.country,
+    });
+    if (level === "alert") console.error(`[mcp-error] ${line}`);
+    else console.warn(`[mcp-warn] ${line}`);
+  }
+  return failed;
+}
+
+const _lastAlert = new Map(); // signature -> { at, suppressed }
+let _lastAlertAt = 0;
+
+function _resetAlertThrottle() { _lastAlert.clear(); _lastAlertAt = 0; }
+
+async function sendAlerts(failed, env, now) {
+  env = env || process.env;
+  now = now || Date.now();
+  const webhook = env.MCP_ALERT_WEBHOOK_URL || env.SLACK_FEEDBACK_WEBHOOK_URL;
+  if (!webhook || env.MCP_ALERTS_DISABLED) return 0;
+  let sent = 0;
+  for (const { ev, level } of failed) {
+    if (level !== "alert") continue;
+    if (/mcp-test/i.test(ev.user_agent || "")) continue; // `rhylthyme mcp-test` provokes errors on purpose
+    const signature = `${ev.endpoint}|${ev.tool || ev.method}|${ev.error_code}`;
+    const last = _lastAlert.get(signature);
+    if ((last && now - last.at < ALERT_REPEAT_MS) || now - _lastAlertAt < ALERT_MIN_GAP_MS) {
+      if (last) last.suppressed += 1;
+      continue;
+    }
+    const suppressed = last ? last.suppressed : 0;
+    _lastAlert.set(signature, { at: now, suppressed: 0 });
+    _lastAlertAt = now;
+    const path = ev.endpoint === "generic" ? "/mcp" : `/${ev.endpoint}/mcp`;
+    const text = [
+      `:rotating_light: *MCP error* on \`${path}\`: \`${ev.method}${ev.tool ? " " + ev.tool : ""}\` failed with \`${ev.error_code}\` (${ev.duration_ms} ms)`,
+      ev.error_message ? `> ${ev.error_message}` : null,
+      `client \`${ev.user_agent || "unknown"}\`${ev.client_hash ? " #" + ev.client_hash.slice(0, 6) : ""}${ev.country ? " · " + ev.country : ""}` +
+        (suppressed ? ` · ${suppressed} more like this since the last alert` : ""),
+      "Vercel logs: filter on `mcp-error`. Reproduce with `rhylthyme mcp-test`.",
+    ].filter(Boolean).join("\n");
+    try {
+      const resp = await fetch(webhook, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+        signal: AbortSignal.timeout(ALERT_TIMEOUT_MS),
+      });
+      if (resp.ok) sent += 1;
+      else console.warn(`mcp alert webhook returned ${resp.status}`);
+    } catch (e) {
+      console.warn("mcp alert webhook failed:", e && e.message ? e.message : e);
+    }
+  }
+  return sent;
 }
 
 let _sink = null; // tests replace the Supabase writer
@@ -254,7 +355,6 @@ function waitUntil(promise) {
 function begin(bodyBuf, ctx, env) {
   env = env || process.env;
   try {
-    if (!enabled(env)) return null;
     const messages = parseRequests(bodyBuf);
     if (!messages.length) return null;
     const salt = env.MCP_ANALYTICS_SALT || env.SUPABASE_SERVICE_ROLE_KEY || "";
@@ -273,7 +373,11 @@ function begin(bodyBuf, ctx, env) {
         try {
           const text = Buffer.concat(chunks).toString("utf8");
           applyOutcome(events, text, status, Date.now() - started);
-          await insertRows(events.map(toRow), env);
+          const failed = logFailures(events);
+          await Promise.all([
+            failed.length ? sendAlerts(failed, env) : null,
+            enabled(env) ? insertRows(events.map(toRow), env) : null,
+          ]);
         } catch (e) {
           console.warn(`mcp analytics error (${events.length} rows, ${events.map((x) => x.method).join(",")}):`,
             e && e.message ? e.message : e);
@@ -289,6 +393,10 @@ function begin(bodyBuf, ctx, env) {
 module.exports = {
   begin,
   waitUntil,
+  severity,
+  logFailures,
+  sendAlerts,
+  _resetAlertThrottle,
   setSink,
   enabled,
   parseRequests,

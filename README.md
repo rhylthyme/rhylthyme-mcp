@@ -77,6 +77,13 @@ rhylthyme generate -e gym "45 minute upper-body circuit, two people, one bench" 
 | `--open` | Open the live timeline in a browser. |
 | `--no-publish`, `--json`, `-q` | Skip publishing; print JSON; print only the URL. |
 
+To check a server (this one, or your own deployment) end to end:
+
+```bash
+rhylthyme mcp-test                                   # all five hosted endpoints, read-only
+rhylthyme mcp-test --url http://localhost:3000/mcp -e generic --publish
+```
+
 `rhylthyme whoami` shows the stored sign-in; `rhylthyme logout` forgets it.
 On a machine without a browser, set `RHYLTHYME_TOKEN` to an access token
 from <https://www.rhylthyme.com/mcp/auth> (it lasts about an hour), or

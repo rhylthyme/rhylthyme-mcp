@@ -66,6 +66,7 @@ test("tools/call rows keep safe fields only — never argument values, IPs or to
     assert.ok(!serialized.includes(secret), `row leaked ${secret}`);
   }
   assert.ok(!("rpc_id" in Analytics.toRow(ev)));
+  assert.ok(!("error_message" in Analytics.toRow(Object.assign({ error_message: "secret step name" }, ev))));
 });
 
 test("tokenSubject tolerates bearer prefixes and rejects malformed tokens", () => {
@@ -105,13 +106,68 @@ test("applyOutcome reads JSON and SSE responses and classifies errors", () => {
   assert.deepEqual([h.ok, h.error_code], [false, "http_406"]);
 });
 
-test("begin is a no-op without Supabase credentials", () => {
+test("without Supabase credentials nothing is written, but failures are still logged", async () => {
   Analytics.setSink(null);
-  const body = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }));
-  assert.equal(Analytics.begin(body, { vertical: "generic", headers: {} }, {}), null);
-  assert.equal(Analytics.begin(body, { vertical: "generic", headers: {} },
-    { SUPABASE_URL: "u", SUPABASE_SERVICE_ROLE_KEY: "k", MCP_ANALYTICS_DISABLED: "1" }), null);
+  assert.equal(Analytics.enabled({}), false);
+  assert.equal(Analytics.enabled({ SUPABASE_URL: "u", SUPABASE_SERVICE_ROLE_KEY: "k", MCP_ANALYTICS_DISABLED: "1" }), false);
   assert.equal(Analytics.enabled({ SUPABASE_URL: "u", SUPABASE_SERVICE_ROLE_KEY: "k" }), true);
+  assert.equal(Analytics.begin(Buffer.from("junk"), { vertical: "generic", headers: {} }, {}), null);
+
+  const realFetch = global.fetch, realError = console.error;
+  const lines = []; let fetched = 0;
+  global.fetch = async () => { fetched++; return { ok: true }; };
+  console.error = (l) => lines.push(l);
+  try {
+    const body = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name: "import_text" } }));
+    const t = Analytics.begin(body, { vertical: "lab", headers: { "user-agent": "claude-ai" } }, {});
+    t.capture(Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: 1, result: { isError: true, content: [{ type: "text", text: "Text import failed (502):\n boom" }] } })));
+    await t.finish(200);
+  } finally { global.fetch = realFetch; console.error = realError; }
+  assert.equal(fetched, 0, "no webhook, no Supabase: no network");
+  assert.equal(lines.length, 1);
+  assert.match(lines[0], /^\[mcp-error\] /);
+  const logged = JSON.parse(lines[0].slice("[mcp-error] ".length));
+  assert.deepEqual([logged.endpoint, logged.tool, logged.code, logged.message], ["lab", "import_text", "tool_error", "Text import failed (502): boom"]);
+});
+
+test("severity separates broken from expected", () => {
+  const sev = (o) => Analytics.severity(Object.assign({ ok: false, method: "tools/call" }, o));
+  assert.equal(Analytics.severity({ ok: true }), null);
+  assert.equal(Analytics.severity({ ok: null }), null);
+  assert.equal(sev({ error_code: "tool_error", error_message: "Text import failed (502)" }), "alert");
+  assert.equal(sev({ error_code: "tool_error", error_message: "import_text requires the user's Rhylthyme access token. Call **login**" }), "warn");
+  assert.equal(sev({ error_code: "tool_error", error_message: "Save failed: not authorized (401). The token may have expired" }), "warn");
+  assert.equal(sev({ error_code: "http_500" }), "alert");
+  assert.equal(sev({ error_code: "rpc_-32603" }), "alert");
+  assert.equal(sev({ error_code: "rpc_-32602" }), "alert");
+  assert.equal(sev({ error_code: "rpc_-32602", method: "prompts/get" }), "warn");
+  assert.equal(sev({ error_code: "rpc_-32601", method: "server/discover" }), "warn");
+  assert.equal(sev({ error_code: "http_406" }), "warn");
+});
+
+test("alerts go to the webhook once per signature, skip warnings and mcp-test traffic", async () => {
+  Analytics._resetAlertThrottle();
+  const realFetch = global.fetch;
+  const posts = [];
+  global.fetch = async (url, init) => { posts.push({ url, body: JSON.parse(init.body) }); return { ok: true }; };
+  const env = { SLACK_FEEDBACK_WEBHOOK_URL: "https://hooks.example/x" };
+  const ev = (o) => ({ ev: Object.assign({ endpoint: "lab", method: "tools/call", tool: "import_text", error_code: "tool_error",
+    error_message: "Text import failed (502)", duration_ms: 12, user_agent: "claude-ai", client_hash: "abcdef123456", country: "US" }, o), level: "alert" });
+  try {
+    const t0 = 1_000_000;
+    assert.equal(await Analytics.sendAlerts([ev({})], env, t0), 1);
+    assert.equal(await Analytics.sendAlerts([ev({}), ev({})], env, t0 + 60_000), 0, "same signature inside the window");
+    assert.equal(await Analytics.sendAlerts([{ ev: ev({}).ev, level: "warn" }], env, t0 + 61_000), 0, "warnings never alert");
+    assert.equal(await Analytics.sendAlerts([ev({ tool: "save_program", user_agent: "rhylthyme-cli/0.2 mcp-test" })], env, t0 + 62_000), 0);
+    assert.equal(await Analytics.sendAlerts([ev({ tool: "save_program" })], env, t0 + 5_000), 0, "global minimum gap");
+    assert.equal(await Analytics.sendAlerts([ev({})], env, t0 + 16 * 60_000), 1, "window elapsed");
+    assert.equal(await Analytics.sendAlerts([ev({ tool: "visualize_schedule" })], {}, t0 + 40 * 60_000), 0, "no webhook configured");
+  } finally { global.fetch = realFetch; Analytics._resetAlertThrottle(); }
+  assert.equal(posts.length, 2);
+  assert.equal(posts[0].url, "https://hooks.example/x");
+  assert.match(posts[0].body.text, /MCP error\* on `\/lab\/mcp`: `tools\/call import_text` failed with `tool_error`/);
+  assert.match(posts[0].body.text, /Text import failed \(502\)/);
+  assert.match(posts[1].body.text, /2 more like this since the last alert/);
 });
 
 test("a failing sink never breaks the tracker", async () => {
