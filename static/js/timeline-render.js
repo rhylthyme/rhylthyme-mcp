@@ -1,5 +1,5 @@
 /*!
- * Rhylthyme timeline-render v2.0.0-beta.4
+ * Rhylthyme timeline-render v2.0.0-beta.5
  * (c) 2026 Rhylthyme contributors. Released under the Apache License 2.0.
  * Source: https://github.com/rhylthyme/rhylthyme-timeline
  *
@@ -713,6 +713,116 @@
     '#8b5cf6', '#ec4899', '#14b8a6', '#f97316'
   ];
 
+  // Named palettes. `vivid` ... `cookbook` are the interactive web
+  // timeline's palettes, value for value (rhylthyme-server's
+  // web_visualizer.py `colorPalettes`; a server test keeps them equal), so
+  // a static figure can match what the reader saw on screen. `okabe-ito`
+  // is the colour-blind-safe set recommended by many journals; `grayscale`
+  // survives a black-and-white print.
+  var PALETTES = {
+    classic: PALETTE,
+    vivid: ['#2E86AB', '#A23B72', '#F18F01', '#C73E1D', '#5D737E', '#8E44AD', '#27AE60', '#E67E22', '#34495E', '#16A085', '#9B59B6', '#F39C12'],
+    muted: ['#6B9E7D', '#7E8FAB', '#C4956A', '#B07D9E', '#8BA4A0', '#A0896B', '#8D8DB5', '#9EAE82', '#AB9292', '#7DA7B8', '#B5A278', '#9B8EAD'],
+    tableau: ['#4E79A7', '#F28E2B', '#E15759', '#76B7B2', '#59A14F', '#EDC948', '#B07AA1', '#FF9DA7', '#9C755F', '#BAB0AC', '#D4A6C8', '#6DAADD'],
+    google: ['#039BE5', '#7986CB', '#33B679', '#8E24AA', '#E67C73', '#F6BF26', '#F4511E', '#616161', '#3F51B5', '#0B8043', '#D50000', '#795548'],
+    pastel: ['#8DD3C7', '#BEBADA', '#FB8072', '#80B1D3', '#FDB462', '#B3DE69', '#FCCDE5', '#BC80BD', '#CCEBC5', '#FFED6F', '#D9D9D9', '#D5A6BD'],
+    d3: ['#1F77B4', '#FF7F0E', '#2CA02C', '#D62728', '#9467BD', '#8C564B', '#E377C2', '#7F7F7F', '#BCBD22', '#17BECF', '#AEC7E8', '#FFBB78'],
+    cookbook: ['#b3a98f', '#5f8a6c', '#c56b34', '#d8a23c', '#b3322c', '#8e5572', '#6a6359', '#7e8a44', '#a08560', '#4f7a8c', '#9d6f4f', '#c8a565'],
+    'okabe-ito': ['#0072B2', '#E69F00', '#009E73', '#D55E00', '#CC79A7', '#56B4E9', '#F0E442', '#000000'],
+    grayscale: ['#252525', '#737373', '#bdbdbd', '#525252', '#969696', '#d9d9d9']
+  };
+
+  // Looks. `classic` is the drawing renderTimelineSvg has always produced
+  // and stays the default, byte for byte. `web` follows the interactive
+  // timeline (flat bars, vivid palette, dark axis, clock labels).
+  // `publication` is `web` tuned for a figure: no brand mark, no title
+  // (the caption carries it), an axis title, embeddable fonts, and labels
+  // that are placed beside a bar rather than cut off.
+  var SYSTEM_FONT = '-apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif';
+  var STYLES = {
+    classic: { classic: true, palette: 'classic', fontFamily: SYSTEM_FONT, timeFormat: 'minutes' },
+    web: {
+      palette: 'vivid', fontFamily: SYSTEM_FONT, timeFormat: 'clock',
+      background: '#ffffff', rowFill: '#f9fafb', rowStroke: '#e5e7eb', grid: '#e5e7eb',
+      axis: '#111827', axisWidth: 1.5, tickLabel: '#111827', tickWeight: '600',
+      title: '#111827', muted: '#6b7280', trackLabel: '#111827', legendText: '#374151',
+      arrow: '#4b5563', arrowWidth: 1.5, radius: 3, barGap: 1.5,
+      showTitle: true, brand: true, axisTitle: false, labelOverflow: 'truncate', tooltips: true
+    },
+    publication: {
+      palette: 'vivid', fontFamily: 'Helvetica, Arial, sans-serif', timeFormat: 'clock',
+      background: '#ffffff', rowFill: '#ffffff', rowStroke: '#d1d5db', grid: '#e5e7eb',
+      axis: '#000000', axisWidth: 1.25, tickLabel: '#000000', tickWeight: '400',
+      title: '#000000', muted: '#374151', trackLabel: '#000000', legendText: '#111827',
+      arrow: '#1f2937', arrowWidth: 1.25, radius: 2, barGap: 1.5,
+      showTitle: false, brand: false, axisTitle: true, labelOverflow: 'outside', tooltips: false
+    }
+  };
+
+  // No DOM to measure with, so text width is estimated from per-character
+  // classes (Helvetica/Arial-like metrics). Good to a few percent, which
+  // is what label fitting and legend layout need.
+  function textWidth(str, size, bold) {
+    var w = 0;
+    str = String(str == null ? '' : str);
+    for (var i = 0; i < str.length; i++) {
+      var ch = str.charAt(i);
+      if (" .,:;'|!il".indexOf(ch) !== -1 || ch === 'j') w += 0.28;
+      else if ('ftr()[]-/\u2026'.indexOf(ch) !== -1) w += 0.36;
+      else if ('mwMW@%'.indexOf(ch) !== -1) w += 0.86;
+      else if (ch >= 'A' && ch <= 'Z') w += 0.68;
+      else if (ch >= '0' && ch <= '9') w += 0.56;
+      else if (ch.charCodeAt(0) > 0x2E7F) w += 1.0;   // CJK and other wide scripts
+      else w += 0.54;
+    }
+    return w * size * (bold ? 1.06 : 1);
+  }
+
+  function truncateToWidth(str, maxW, size, bold) {
+    str = String(str == null ? '' : str);
+    if (textWidth(str, size, bold) <= maxW) return str;
+    var out = str;
+    while (out.length > 1 && textWidth(out + '\u2026', size, bold) > maxW) out = out.slice(0, -1);
+    return out.replace(/\s+$/, '') + '\u2026';
+  }
+
+  // Dark ink on light bars, white on dark ones (WCAG relative luminance).
+  function inkOn(hex) {
+    var m = /^#?([0-9a-f]{6})$/i.exec(String(hex || ''));
+    if (!m) return '#ffffff';
+    var n = parseInt(m[1], 16);
+    var lin = [(n >> 16) & 255, (n >> 8) & 255, n & 255].map(function (c) {
+      c /= 255; return c <= 0.03928 ? c / 12.92 : Math.pow((c + 0.055) / 1.055, 2.4);
+    });
+    var L = 0.2126 * lin[0] + 0.7152 * lin[1] + 0.0722 * lin[2];
+    return L > 0.4 ? '#111827' : '#ffffff';
+  }
+
+  function resolvePalette(p) {
+    if (Array.isArray(p) && p.length) return p;
+    return PALETTES[p] || null;
+  }
+
+  function fmtClock(s, hours) {
+    s = Math.max(0, Math.round(s || 0));
+    var pad = function (n) { return (n < 10 ? '0' : '') + n; };
+    if (hours) return Math.floor(s / 3600) + ':' + pad(Math.floor((s % 3600) / 60));
+    return Math.floor(s / 60) + ':' + pad(s % 60);
+  }
+
+  var NICE_TICKS = [10, 15, 30, 60, 120, 300, 600, 900, 1800, 3600, 7200, 10800, 21600, 43200, 86400, 172800, 604800];
+  function niceTickInterval(total, maxTicks) {
+    for (var i = 0; i < NICE_TICKS.length; i++) if (total / NICE_TICKS[i] <= maxTicks) return NICE_TICKS[i];
+    return Math.ceil(total / maxTicks / 604800) * 604800;
+  }
+
+  var LEGEND_LABELS = {
+    dependency: 'dependency', 'negative-offset': 'negative offset', indefinite: 'indefinite',
+    variable: 'variable', manual: 'manual', barrier: 'barrier (all instances)',
+    'barrier-any': 'barrier (any instance)', 'in-flight': 'in-flight limit',
+    planned: 'planned', late: 'late', early: 'early', 'on-time': 'on time'
+  };
+
   function esc(s) {
     return String(s == null ? '' : s)
       .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
@@ -767,6 +877,46 @@
     program = expandReplicates(program || {});
     opts = opts || {};
     var arrows = opts.arrows !== false, marks = opts.marks !== false, legend = opts.legend !== false;
+    var look = STYLES[opts.style] || STYLES.classic;
+    var classic = !!look.classic;
+    var legendOpts = (opts.legend && typeof opts.legend === 'object') ? opts.legend : {};
+    if (legendOpts.show === false || legendOpts.position === 'none') legend = false;
+    // The classic one-line key is kept verbatim unless the caller asks for
+    // something it cannot do (a position, chosen items, a task key).
+    var customLegend = legend && (!classic || (opts.legend && typeof opts.legend === 'object') || opts.colorBy === 'task');
+    var legendPos = ({ top: 'top', right: 'right' })[legendOpts.position] || 'bottom';
+    var palette = resolvePalette(opts.palette) || resolvePalette(look.palette) || PALETTE;
+    var colorBy = opts.colorBy === 'task' ? 'task' : 'track';
+    var colorOverrides = (opts.colors && typeof opts.colors === 'object') ? opts.colors : {};
+    var fontFamily = opts.fontFamily || look.fontFamily;
+    var sc = (!classic && typeof opts.fontScale === 'number' && opts.fontScale > 0.5 && opts.fontScale <= 3) ? opts.fontScale : 1;
+    function fsz(n) { return Math.round(n * sc * 10) / 10; }
+    // Text is measured by estimate (Helvetica-like metrics). A renderer that
+    // will substitute a wider face (DejaVu, Verdana) passes a factor > 1 so
+    // names still fit their bars and the label column.
+    var twf = (typeof opts.fontWidthFactor === 'number' && opts.fontWidthFactor >= 0.8 && opts.fontWidthFactor <= 1.6) ? opts.fontWidthFactor : 1;
+    function measure(str, size, bold) { return textWidth(str, size, bold) * twf; }
+    function fitText(str, maxW, size, bold) { return truncateToWidth(str, maxW / twf, size, bold); }
+    var FS = { title: fsz(14), sub: fsz(11), tick: fsz(10), track: fsz(12), bar: fsz(11), legend: fsz(legendOpts.fontSize || 10), small: fsz(9), brand: fsz(10) };
+    var C = classic
+      ? { bg: '#fafafa', title: '#111827', muted: '#6b7280', axis: '#d1d5db', tick: '#9ca3af', grid: '#e5e7eb', tickLabel: '#6b7280',
+          trackLabel: '#374151', arrow: '#6b7280', barrierBar: '#374151', legendText: '#4b5563', brand: '#9ca3af' }
+      : { bg: look.background, title: look.title, muted: look.muted, axis: look.axis, tick: look.axis, grid: look.grid, tickLabel: look.tickLabel,
+          trackLabel: look.trackLabel, arrow: look.arrow, barrierBar: look.arrow, legendText: look.legendText, brand: '#9ca3af' };
+    if (opts.background !== undefined) C.bg = opts.background;
+    var AW = classic ? 1.5 : look.arrowWidth;
+    var showTitle = opts.title === false ? false : (opts.title !== undefined || classic || look.showTitle);
+    var showSubtitle = opts.subtitle === false ? false : (typeof opts.subtitle === 'string' || showTitle);
+    var showBrand = opts.brand !== undefined ? !!opts.brand : (classic || look.brand);
+    var overflow = ({ truncate: 1, hide: 1, outside: 1 })[opts.labelOverflow] ? opts.labelOverflow : (classic ? 'truncate' : look.labelOverflow);
+    var tooltips = opts.tooltips !== undefined ? !!opts.tooltips : (!classic && look.tooltips);
+    var showDurations = !!opts.showDurations;
+    var timeFormat = opts.timeFormat || look.timeFormat;
+    var startAt = null;
+    if (opts.startAt !== undefined && opts.startAt !== null) {
+      var sa = (opts.startAt instanceof Date) ? opts.startAt : new Date(opts.startAt);
+      if (!isNaN(sa.getTime())) startAt = sa;
+    }
     var now = (typeof opts.now === 'number' && isFinite(opts.now)) ? opts.now : null;
     var states = opts.states || {};
     var tracks = (program.tracks || []).filter(function (t) {
@@ -799,7 +949,51 @@
     if (now !== null) globalEnd = Math.max(globalEnd, now);
     if (globalEnd <= 0) globalEnd = 1;
 
+    // Colour keys: one per track (the web timeline's rule) or one per task /
+    // resource. `colors` pins a key (trackId, track name or task) to a hex.
+    var taskOrder = [];
+    if (colorBy === 'task') {
+      tracks.forEach(function (t) { (t.steps || []).forEach(function (st) {
+        if (st && st.task && taskOrder.indexOf(st.task) === -1) taskOrder.push(st.task);
+      }); });
+    }
+    function colorFor(track, ti, step) {
+      if (colorBy === 'task' && step) {
+        if (!step.task) return colorOverrides[''] || '#9ca3af';
+        return colorOverrides[step.task] || palette[taskOrder.indexOf(step.task) % palette.length];
+      }
+      return colorOverrides[track.trackId] || colorOverrides[track.name] || palette[ti % palette.length];
+    }
+
+    // What the drawing actually contains, so the key lists only that.
+    var used = {};
+    var feedsOtherTrack = {};   // stepId -> an arrow leaves its right edge
+    tracks.forEach(function (t) { (t.steps || []).forEach(function (st) {
+      var d0 = (st && st.duration) || {};
+      if (d0.type === 'indefinite') used.indefinite = true;
+      if (d0.type === 'variable' && d0.maxSeconds !== undefined) used.variable = true;
+      var b0 = barrierOf(st);
+      if (b0 === 'all') used.barrier = true;
+      if (b0 === 'any') used['barrier-any'] = true;
+      triggersOf(st).forEach(function (tr) {
+        if (!tr) return;
+        if (tr.type === 'manual') used.manual = true;
+        if (tr._synthetic === 'inFlight') { used['in-flight'] = true; return; }
+        if ((tr.type === 'afterStep' || tr.type === 'afterStepWithBuffer') && tr.stepId
+            && trackOfStep[tr.stepId] !== undefined && trackOfStep[tr.stepId] !== t.trackId) {
+          used.dependency = true;
+          if (tr.event !== 'start') feedsOtherTrack[tr.stepId] = true;
+          if (parseSeconds(tr.offsetSeconds) < 0) used['negative-offset'] = true;
+        }
+      });
+    }); });
+    if (!marks) { used.indefinite = used.variable = used.manual = false; }
+    if (!arrows) { used.dependency = used['negative-offset'] = used.barrier = used['barrier-any'] = used['in-flight'] = false; }
+    if (baseline) used.planned = used.late = used.early = used['on-time'] = true;
+
+    var DEV_STROKE = { late: '#dc2626', early: '#2563eb', 'on-time': '#16a34a' };
     var W = (typeof opts.width === 'number' && opts.width > 300) ? opts.width : 820;
+    var lg = customLegend ? layoutLegend() : null;
     var H_HEADER = 56;
     // A baseline overlay needs a second, thinner bar per row: the row grows
     // and the main bar shrinks so both fit. Without it every dimension is
@@ -810,8 +1004,37 @@
     var H_FOOTER = legend ? (baseline ? 78 : 62) : 28;
     var PAD_LEFT = 150;
     var PAD_RIGHT = 18;
+    if (!classic) {
+      // Header: optional title block, optional top legend, then the axis.
+      H_HEADER = (showTitle || showSubtitle ? 30 * sc : 6) + (lg && legendPos === 'top' ? lg.height + 10 : 0) + 26 * sc;
+      var axisTitlePending = typeof opts.axisTitle === 'string' || opts.axisTitle === true || (opts.axisTitle === undefined && look.axisTitle);
+      H_TRACK = (typeof opts.rowHeight === 'number' && opts.rowHeight >= 20) ? opts.rowHeight : Math.round((baseline ? 58 : 46) * sc);
+      BAR_H = baseline ? Math.round(H_TRACK * 26 / 58) : H_TRACK - 14;
+      GHOST_H = Math.max(6, Math.round(H_TRACK * 9 / 58));
+      // The label column fits the longest track name instead of cutting it.
+      var widest = 0;
+      tracks.forEach(function (t) { widest = Math.max(widest, measure(t.name || 'Track', FS.track, true)); });
+      PAD_LEFT = (typeof opts.labelWidth === 'number' && opts.labelWidth >= 0)
+        ? opts.labelWidth : Math.round(Math.min(Math.max(widest + 20, 70), W * 0.34));
+    }
+    if (customLegend) {
+      H_FOOTER = (lg && legendPos === 'bottom' ? 14 + lg.height : 0) + (showBrand ? 20 : 0) + 10;
+      if (lg && legendPos === 'right') PAD_RIGHT = 18 + lg.width + 18;
+    } else if (!classic) {
+      H_FOOTER = (showBrand ? 20 : 0) + 10;
+    }
+    // An axis title sits in the label column beside the first tick when
+    // there is room for it, otherwise on a line of its own above the ticks.
+    var axisTitleOwnLine = false;
+    if (!classic && axisTitlePending) {
+      var probe = typeof opts.axisTitle === 'string' ? opts.axisTitle : 'Time (min:s)';
+      axisTitleOwnLine = measure(probe, FS.tick, false) > PAD_LEFT - 8 - 22 * sc;
+      if (axisTitleOwnLine) H_HEADER += 14 * sc;
+    }
     var BAR_W = W - PAD_LEFT - PAD_RIGHT;
     var H = H_HEADER + tracks.length * H_TRACK + H_FOOTER;
+    if (lg && legendPos === 'right') H = Math.max(H, H_HEADER + 4 + lg.height + H_FOOTER);
+    H = Math.round(H);
 
     function xOf(t) { return PAD_LEFT + (t / globalEnd) * BAR_W; }
     function rowY(ti) { return H_HEADER + ti * H_TRACK; }
@@ -822,7 +1045,6 @@
     // Sign of a step's end deviation against the baseline, with a dead band
     // (deviationThreshold) around zero so a few seconds of tick lag does not
     // read as a schedule slip.
-    var DEV_STROKE = { late: '#dc2626', early: '#2563eb', 'on-time': '#16a34a' };
     function deviationOf(sid) {
       if (!baseline) return null;
       var plan = baseline[sid], real = timings[sid];
@@ -837,82 +1059,138 @@
     var parts = [];
     parts.push(
       '<svg xmlns="http://www.w3.org/2000/svg" width="' + W + '" height="' + H
-      + '" viewBox="0 0 ' + W + ' ' + H + '" class="rt-timeline" '
-      + 'font-family="-apple-system, BlinkMacSystemFont, \'Segoe UI\', sans-serif">'
+      + '" viewBox="0 0 ' + W + ' ' + H + '" class="rt-timeline' + (classic ? '' : ' rt-style-' + esc(opts.style)) + '" '
+      + (classic ? '' : 'role="img" ')
+      + 'font-family="' + (classic && !opts.fontFamily ? "-apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif" : esc(fontFamily)) + '">'
     );
+    if (!classic) {
+      parts.push('<title>' + esc(typeof opts.title === 'string' ? opts.title : (program.name || 'Timeline')) + '</title>'
+        + '<desc>' + esc(tracks.length + ' tracks, ' + fmtMin(globalEnd) + ' total. ' + (program.description || '')) + '</desc>');
+    }
     parts.push('<defs>'
       + '<marker id="rt-arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="8" markerHeight="8" markerUnits="userSpaceOnUse" orient="auto">'
-      + '<path d="M0,0 L10,5 L0,10 z" fill="#6b7280"/></marker>'
+      + '<path d="M0,0 L10,5 L0,10 z" fill="' + C.arrow + '"/></marker>'
       + '<filter id="rt-shadow" x="-5%" y="-20%" width="110%" height="150%">'
       + '<feDropShadow dx="0" dy="1" stdDeviation="1" flood-color="#000000" flood-opacity="0.18"/></filter>'
       + '<pattern id="rt-hatch" width="6" height="6" patternUnits="userSpaceOnUse" patternTransform="rotate(45)">'
       + '<rect width="6" height="6" fill="#ffffff" fill-opacity="0"/><line x1="0" y1="0" x2="0" y2="6" stroke="#ffffff" stroke-opacity="0.55" stroke-width="2"/></pattern>'
       + '</defs>');
-    parts.push('<rect width="' + W + '" height="' + H + '" fill="#fafafa"/>');
+    if (C.bg && C.bg !== 'none' && C.bg !== 'transparent') {
+      parts.push('<rect width="' + W + '" height="' + H + '" fill="' + esc(C.bg) + '"/>');
+    }
 
     // Title + subtitle
-    var title = program.name || 'Timeline';
-    parts.push(
-      '<text x="' + PAD_LEFT + '" y="22" font-size="14" font-weight="600" '
-      + 'fill="#111827">'
-      + esc(title.length > 60 ? title.slice(0, 57) + '…' : title)
-      + '</text>'
-    );
-    parts.push(
-      '<text x="' + (W - PAD_RIGHT) + '" y="22" font-size="11" fill="#6b7280" text-anchor="end">'
-      + tracks.length + ' tracks · ' + fmtMin(globalEnd) + ' total</text>'
-    );
+    var title = typeof opts.title === 'string' ? opts.title : (program.name || 'Timeline');
+    var titleX = classic ? PAD_LEFT : 16, titleY = fsz(22);
+    if (showTitle) {
+      parts.push(
+        '<text x="' + titleX + '" y="' + titleY + '" font-size="' + FS.title + '" font-weight="600" '
+        + 'fill="' + C.title + '">'
+        + esc(classic ? (title.length > 60 ? title.slice(0, 57) + '…' : title) : fitText(title, W * 0.68, FS.title, true))
+        + '</text>'
+      );
+    }
+    if (showSubtitle) {
+      parts.push(
+        '<text x="' + (W - (classic ? PAD_RIGHT : 16)) + '" y="' + titleY + '" font-size="' + FS.sub + '" fill="' + C.muted + '" text-anchor="end">'
+        + (typeof opts.subtitle === 'string' ? esc(opts.subtitle) : tracks.length + ' tracks · ' + fmtMin(globalEnd) + ' total') + '</text>'
+      );
+    }
+    if (lg && legendPos === 'top') parts.push(lg.render(16, (showTitle || showSubtitle ? 30 * sc : 6) + 4));
 
     // Time axis line + tick labels
     var axisY = H_HEADER - 4;
     parts.push(
       '<line x1="' + PAD_LEFT + '" y1="' + axisY + '" x2="' + (PAD_LEFT + BAR_W)
-      + '" y2="' + axisY + '" stroke="#d1d5db" stroke-width="1"/>'
+      + '" y2="' + axisY + '" stroke="' + C.axis + '" stroke-width="' + (classic ? 1 : look.axisWidth) + '"/>'
     );
     var tickInterval;
     if (globalEnd <= 30 * 60) tickInterval = 5 * 60;
     else if (globalEnd <= 90 * 60) tickInterval = 15 * 60;
     else if (globalEnd <= 180 * 60) tickInterval = 30 * 60;
     else tickInterval = 60 * 60;
+    if (typeof opts.tickInterval === 'number' && opts.tickInterval > 0) tickInterval = opts.tickInterval;
+    else if (!classic) tickInterval = niceTickInterval(globalEnd, Math.max(3, Math.floor(BAR_W / (62 * sc))));
+    var clockHours = globalEnd >= 3600 || tickInterval >= 3600;
+    function fmtTick(t) {
+      if (startAt) {
+        var dt = new Date(startAt.getTime() + t * 1000);
+        var hh = dt.getHours(), mm = dt.getMinutes();
+        return (hh < 10 ? '0' : '') + hh + ':' + (mm < 10 ? '0' : '') + mm;
+      }
+      return timeFormat === 'minutes' ? fmtMin(t) : fmtClock(t, clockHours);
+    }
+    var axisTitle = typeof opts.axisTitle === 'string' ? opts.axisTitle
+      : ((opts.axisTitle === true || (opts.axisTitle === undefined && !classic && look.axisTitle))
+        ? (startAt ? 'Clock time' : (timeFormat === 'minutes' ? 'Elapsed time' : 'Time (' + (clockHours ? 'h:mm' : 'min:s') + ')')) : null);
+    if (axisTitle) {
+      parts.push(axisTitleOwnLine
+        ? '<text class="rt-axis-title" x="' + PAD_LEFT + '" y="' + (axisY - 8 - 14 * sc).toFixed(1) + '" font-size="' + FS.tick
+          + '" fill="' + C.tickLabel + '" text-anchor="start" font-style="italic">' + esc(axisTitle) + '</text>'
+        : '<text class="rt-axis-title" x="' + (PAD_LEFT - 8 - 18 * sc).toFixed(1) + '" y="' + (axisY - 8) + '" font-size="' + FS.tick
+          + '" fill="' + C.tickLabel + '" text-anchor="end" font-style="italic">' + esc(axisTitle) + '</text>');
+    }
     var rowsBottom = H_HEADER + tracks.length * H_TRACK;
     for (var t = 0; t <= globalEnd; t += tickInterval) {
       var x = xOf(t);
       parts.push(
         '<line x1="' + x.toFixed(1) + '" y1="' + (axisY - 4) + '" x2="' + x.toFixed(1)
-        + '" y2="' + axisY + '" stroke="#9ca3af" stroke-width="1"/>'
+        + '" y2="' + axisY + '" stroke="' + C.tick + '" stroke-width="1"/>'
       );
-      if (t > 0) {
+      if (t > 0 && opts.grid !== false) {
         parts.push('<line x1="' + x.toFixed(1) + '" y1="' + (axisY + 1) + '" x2="' + x.toFixed(1)
-          + '" y2="' + rowsBottom + '" stroke="#e5e7eb" stroke-width="1"/>');
+          + '" y2="' + rowsBottom + '" stroke="' + C.grid + '" stroke-width="1"/>');
       }
       parts.push(
-        '<text x="' + x.toFixed(1) + '" y="' + (axisY - 8) + '" font-size="10" '
-        + 'fill="#6b7280" text-anchor="middle">' + fmtMin(t) + '</text>'
+        '<text x="' + x.toFixed(1) + '" y="' + (axisY - 8) + '" font-size="' + FS.tick + '" '
+        + (classic ? '' : 'font-weight="' + look.tickWeight + '" ')
+        + 'fill="' + C.tickLabel + '" text-anchor="middle">' + fmtTick(t) + '</text>'
       );
     }
 
-    // Tracks + step bars
+    // Tracks + step bars. Outside the classic look, step labels are held
+    // back and drawn after the arrows so a dependency never strikes through
+    // a name.
+    var labelParts = [];
     tracks.forEach(function (track, ti) {
       var y = rowY(ti);
-      var color = PALETTE[ti % PALETTE.length];
+      var trackColor = colorFor(track, ti, null);
       var trackName = track.name || 'Track';
-      var trackLabel = trackName.length > 18 ? trackName.slice(0, 16) + '…' : trackName;
+      var trackLabel = classic
+        ? (trackName.length > 18 ? trackName.slice(0, 16) + '…' : trackName)
+        : fitText(trackName, PAD_LEFT - 14, FS.track, true);
       parts.push(
         '<text x="' + (PAD_LEFT - 8) + '" y="' + (barMid(ti) + 4)
-        + '" font-size="12" font-weight="600" fill="#374151" text-anchor="end">' + esc(trackLabel) + '</text>'
+        + '" font-size="' + FS.track + '" font-weight="600" fill="' + C.trackLabel + '" text-anchor="end">' + esc(trackLabel) + '</text>'
       );
       parts.push(
         '<rect x="' + PAD_LEFT + '" y="' + (y + 4) + '" width="' + BAR_W
-        + '" height="' + (H_TRACK - 8) + '" fill="#ffffff" fill-opacity="0.6" stroke="#e5e7eb"/>'
+        + '" height="' + (H_TRACK - 8) + '" '
+        + (classic ? 'fill="#ffffff" fill-opacity="0.6" stroke="#e5e7eb"' : 'fill="' + look.rowFill + '" stroke="' + look.rowStroke + '"') + '/>'
       );
+      // Neighbours along the row, so a label that does not fit inside its
+      // bar can sit in the free space beside it (labelOverflow: "outside").
+      var spans = [];
+      (track.steps || []).forEach(function (st0) {
+        var tm0 = timings[st0.stepId];
+        if (!tm0 || tm0.duration <= 0) return;
+        var d0 = st0.duration || {}, e0 = tm0.end;
+        if (marks && d0.type === 'variable' && d0.maxSeconds !== undefined) e0 = Math.max(e0, tm0.start + parseSeconds(d0.maxSeconds));
+        spans.push({ id: st0.stepId, x1: xOf(tm0.start), x2: xOf(e0) });
+      });
+      spans.sort(function (a, b) { return a.x1 - b.x1; });
+      var labelEnds = {};   // stepId -> right edge of an outside label
       (track.steps || []).forEach(function (step, si) {
         var tim = timings[step.stepId];
         if (!tim || tim.duration <= 0) return;
+        var color = colorBy === 'task' ? colorFor(track, ti, step) : trackColor;
         var d = step.duration || {};
         var x1 = xOf(tim.start);
         var x2 = xOf(tim.end);
         var w = Math.max(2, x2 - x1);
-        var opacity = si % 2 === 0 ? 1 : 0.78;
+        if (!classic) { x1 += look.barGap / 2; w = Math.max(2, w - look.barGap); }
+        var RX = classic ? 5 : look.radius;
+        var opacity = (classic && si % 2 !== 0) ? 0.78 : 1;
         var state = states[step.stepId] || '';
         if (state === 'done') opacity = 0.35;
         var isIndef = marks && d.type === 'indefinite';
@@ -923,7 +1201,7 @@
           var xMax = xOf(tim.start + parseSeconds(d.maxSeconds));
           if (xMax > x2 + 1) {
             parts.push('<rect x="' + x2.toFixed(1) + '" y="' + barTop(ti) + '" width="' + (xMax - x2).toFixed(1)
-              + '" height="' + BAR_H + '" fill="' + color + '" opacity="0.3" rx="5" ry="5"/>');
+              + '" height="' + BAR_H + '" fill="' + color + '" opacity="0.3" rx="' + RX + '" ry="' + RX + '"/>');
           }
         }
         // The plan, as a thin ghost bar under the bar that actually happened.
@@ -938,7 +1216,7 @@
           );
         }
         var dev = deviationOf(step.stepId);
-        var stroke = ' stroke="#ffffff" stroke-width="1.5"';
+        var stroke = classic ? ' stroke="#ffffff" stroke-width="1.5"' : '';
         if (state === 'active') stroke = ' stroke="#111827" stroke-width="2.5"';
         else if (state === 'waiting') stroke = ' stroke="#b91c1c" stroke-width="2" stroke-dasharray="3,3"';
         else if (dev) stroke = ' stroke="' + DEV_STROKE[dev.sign] + '" stroke-width="2"';
@@ -948,11 +1226,13 @@
           + (dev ? ' data-deviation="' + dev.sign + '" data-deviation-seconds="' + Math.round(dev.seconds) + '"' : '')
           + ' x="' + x1.toFixed(1) + '" y="' + barTop(ti) + '" width="' + w.toFixed(1)
           + '" height="' + BAR_H + '" fill="' + color + '" opacity="' + opacity
-          + '" rx="5" ry="5" filter="url(#rt-shadow)"' + stroke + '/>'
+          + '" rx="' + RX + '" ry="' + RX + '"' + (classic ? ' filter="url(#rt-shadow)"' : '') + stroke
+          + (tooltips ? '><title>' + esc((step.name || step.stepId || '') + ' \u2014 ' + fmtTick(tim.start) + '\u2013' + fmtTick(tim.end)
+            + ' (' + fmtMin(tim.duration) + ')' + (step.task ? ', ' + step.task : '')) + '</title></rect>' : '/>')
         );
         if (isIndef) {
           parts.push('<rect x="' + x1.toFixed(1) + '" y="' + barTop(ti) + '" width="' + w.toFixed(1)
-            + '" height="' + BAR_H + '" fill="url(#rt-hatch)" rx="5" ry="5"/>');
+            + '" height="' + BAR_H + '" fill="url(#rt-hatch)" rx="' + RX + '" ry="' + RX + '"/>');
         }
         if (isManual) {
           // Hand-off flag: a small white triangle at the left edge.
@@ -960,7 +1240,51 @@
           parts.push('<path d="M' + fx.toFixed(1) + ',' + fy.toFixed(1) + ' l9,' + ((BAR_H - 8) / 2).toFixed(1)
             + ' l-9,' + ((BAR_H - 8) / 2).toFixed(1) + ' z" fill="#ffffff" stroke="#111827" stroke-width="1"/>');
         }
-        if (w > 38) {
+        if (!classic) {
+          var ink = inkOn(color);
+          var name = step.name || step.stepId || '';
+          var withDur = showDurations ? name + ' (' + fmtMin(tim.duration) + ')' : name;
+          var inner = w - 10 - (isManual ? 12 : 0);
+          var cxIn = (x1 + w / 2 + (isManual ? 6 : 0)).toFixed(1), ty = (barMid(ti) + FS.bar * 0.36).toFixed(1);
+          var inside = function (str, size) {
+            labelParts.push('<text class="rt-label" x="' + cxIn + '" y="' + ty + '" font-size="' + (size || FS.bar) + '" fill="' + ink
+              + '" text-anchor="middle" font-weight="600">' + esc(str) + '</text>');
+          };
+          var fits = function (str) { return measure(str, FS.bar, true) <= inner; };
+          if (fits(withDur)) inside(withDur);
+          else if (fits(name)) inside(name);
+          else {
+            // A name that nearly fits is set a little smaller before it is
+            // moved outside the bar or cut.
+            var small = Math.round(FS.bar * 0.85 * 10) / 10;
+            var placed = false;
+            if (measure(name, small, true) <= inner) { inside(name, small); placed = true; }
+            if (!placed && overflow === 'outside') {
+              var idx = -1;
+              for (var k = 0; k < spans.length; k++) if (spans[k].id === step.stepId) { idx = k; break; }
+              var me = spans[idx] || { x1: x1, x2: x1 + w };
+              var rightLimit = idx >= 0 && idx + 1 < spans.length ? spans[idx + 1].x1 : PAD_LEFT + BAR_W;
+              var leftLimit = PAD_LEFT;
+              if (idx > 0) leftLimit = Math.max(spans[idx - 1].x2, labelEnds[spans[idx - 1].id] || 0);
+              var tw = measure(name, FS.bar, true);
+              var halo = ' paint-order="stroke" stroke="' + (look.rowFill || '#ffffff') + '" stroke-width="3" stroke-linejoin="round"';
+              var fitsRight = tw + 10 <= rightLimit - me.x2, fitsLeft = tw + 10 <= me.x1 - leftLimit;
+              // Keep clear of the arrow that leaves this bar's right edge.
+              if (fitsRight && fitsLeft && feedsOtherTrack[step.stepId]) fitsRight = false;
+              if (fitsRight) {
+                labelParts.push('<text class="rt-label rt-label-outside" x="' + (me.x2 + 5).toFixed(1) + '" y="' + ty + '" font-size="' + FS.bar
+                  + '" fill="' + C.trackLabel + '" text-anchor="start" font-weight="600"' + halo + '>' + esc(name) + '</text>');
+                labelEnds[step.stepId] = me.x2 + 5 + tw;
+                placed = true;
+              } else if (fitsLeft) {
+                labelParts.push('<text class="rt-label rt-label-outside" x="' + (me.x1 - 5).toFixed(1) + '" y="' + ty + '" font-size="' + FS.bar
+                  + '" fill="' + C.trackLabel + '" text-anchor="end" font-weight="600"' + halo + '>' + esc(name) + '</text>');
+                placed = true;
+              }
+            }
+            if (!placed && overflow !== 'hide' && inner >= 26 * sc) inside(fitText(name, inner, FS.bar, true));
+          }
+        } else if (w > 38) {
           var text = step.name || step.stepId || '';
           var avail = w - 10 - (isManual ? 12 : 0);
           var maxChars = Math.max(3, Math.floor(avail / 6.6));
@@ -1037,10 +1361,10 @@
               parts.push('<g class="rt-inflight" data-inflight-of="' + esc(tr.inFlightOf)
                 + '" data-limit="' + esc(tr.inFlightLimit) + '" data-from="' + esc(tr.stepId)
                 + '" data-step="' + esc(step.stepId) + '">'
-                + '<path class="rt-inflight-edge" d="' + ipath + '" fill="none" stroke="#6b7280" stroke-width="1.5"'
+                + '<path class="rt-inflight-edge" d="' + ipath + '" fill="none" stroke="' + C.arrow + '" stroke-width="' + AW + '"'
                 + ' stroke-linecap="round" stroke-dasharray="1.5,3" marker-end="url(#rt-arrow)"/>'
                 + '<text x="' + ((ix1 + ix2) / 2).toFixed(1) + '" y="' + (Math.min(iy1, iy2) - 6).toFixed(1)
-                + '" font-size="9" fill="#6b7280" text-anchor="middle">' + esc(limitLabel) + '</text>'
+                + '" font-size="' + FS.small + '" fill="' + C.arrow + '" text-anchor="middle">' + esc(limitLabel) + '</text>'
                 + '</g>');
               return;
             }
@@ -1081,7 +1405,7 @@
             }
             arrowCount++;
             converging++;
-            parts.push('<path class="rt-edge' + (barrier ? ' rt-fanin' : '') + '" d="' + path + '" fill="none" stroke="#6b7280" stroke-width="1.5" stroke-linecap="round"'
+            parts.push('<path class="rt-edge' + (barrier ? ' rt-fanin' : '') + '" d="' + path + '" fill="none" stroke="' + C.arrow + '" stroke-width="' + AW + '" stroke-linecap="round"'
               + (neg ? ' stroke-dasharray="5,4"' : '') + (barrier ? '' : ' marker-end="url(#rt-arrow)"') + '/>');
           });
           if (barrier && converging > 0) {
@@ -1092,14 +1416,16 @@
             barrierCount++;
             parts.push('<g class="rt-barrier" data-barrier="' + barrier + '" data-step="' + esc(step.stepId) + '">'
               + '<path d="M' + xc.toFixed(1) + ',' + by.toFixed(1) + ' L' + (bx - 3).toFixed(1) + ',' + by.toFixed(1)
-              + '" fill="none" stroke="#6b7280" stroke-width="1.5" marker-end="url(#rt-arrow)"/>'
+              + '" fill="none" stroke="' + C.arrow + '" stroke-width="' + AW + '" marker-end="url(#rt-arrow)"/>'
               + '<line x1="' + xb.toFixed(1) + '" y1="' + (by - 9).toFixed(1) + '" x2="' + xb.toFixed(1) + '" y2="' + (by + 9).toFixed(1)
-              + '" stroke="#374151" stroke-width="2.5" stroke-linecap="round"' + (barrier === 'any' ? ' stroke-dasharray="3,2.5"' : '') + '/>'
+              + '" stroke="' + C.barrierBar + '" stroke-width="2.5" stroke-linecap="round"' + (barrier === 'any' ? ' stroke-dasharray="3,2.5"' : '') + '/>'
               + '</g>');
           }
         });
       });
     }
+
+    if (labelParts.length) parts.push('<g class="rt-labels">' + labelParts.join('') + '</g>');
 
     // Current-time cursor (player).
     if (now !== null) {
@@ -1110,7 +1436,9 @@
       parts.push('<path d="M' + (cx - 6).toFixed(1) + ',' + (topY - 8) + ' h12 l-6,8 z" fill="#dc2626"/>');
     }
 
-    if (legend) {
+    if (lg && legendPos === 'bottom') parts.push(lg.render(16, H_HEADER + tracks.length * H_TRACK + 14));
+    if (lg && legendPos === 'right') parts.push(lg.render(W - 16 - lg.width, H_HEADER + 4));
+    if (legend && !customLegend) {
       var ly = H - (baseline ? 46 : 30);
       var lx = 16;
       function key(x, drawer, label) {
@@ -1140,12 +1468,122 @@
     }
 
     // Footer brand mark
-    parts.push(
-      '<text x="' + (W - PAD_RIGHT) + '" y="' + (H - 10) + '" font-size="10" '
-      + 'fill="#9ca3af" text-anchor="end">rhylthyme.com timeline preview</text>'
-    );
+    if (showBrand) {
+      parts.push(
+        '<text x="' + (W - (classic ? PAD_RIGHT : 16)) + '" y="' + (H - 10) + '" font-size="' + FS.brand + '" '
+        + 'fill="' + C.brand + '" text-anchor="end">' + (classic ? 'rhylthyme.com timeline preview' : 'rhylthyme.com') + '</text>'
+      );
+    }
     parts.push('</svg>');
     return parts.join('');
+
+    // ---- configurable legend (any style but the untouched classic key) ----
+    // legend: { position: 'bottom'|'top'|'right', items: 'auto' | [...keys],
+    //           onlyUsed, labels: {key: text}, title, columns, frame,
+    //           capacity, fontSize }
+    // Item keys: 'tracks', 'tasks', 'dependency', 'negative-offset',
+    // 'indefinite', 'variable', 'manual', 'barrier', 'barrier-any',
+    // 'in-flight', 'planned', 'late', 'early', 'on-time'.
+    function layoutLegend() {
+      var labels = legendOpts.labels || {};
+      var want = Array.isArray(legendOpts.items) ? legendOpts.items : null;
+      var onlyUsed = legendOpts.onlyUsed !== undefined ? !!legendOpts.onlyUsed : !want;
+      var keys = want || (colorBy === 'task' ? ['tasks'] : []).concat(
+        ['dependency', 'negative-offset', 'indefinite', 'variable', 'manual', 'barrier', 'barrier-any', 'in-flight'],
+        baseline ? ['planned', 'late', 'early', 'on-time'] : []);
+      var grey = '#9ca3af', ink2 = classic ? '#111827' : look.axis;
+      var curve = function (dash) {
+        return '<path d="M0,4 C8,4 6,-4 14,-4" fill="none" stroke="' + C.arrow + '" stroke-width="' + AW + '"'
+          + (dash ? ' stroke-dasharray="' + dash + '"' : '') + ' marker-end="url(#rt-arrow)"/>';
+      };
+      var swatch = function (fill) { return '<rect x="0" y="-6" width="14" height="12" fill="' + fill + '" rx="2"/>'; };
+      var barrierGlyph = function (any) {
+        return '<path d="M0,-5 L7,0 M0,5 L7,0 M7,0 L14,0" fill="none" stroke="' + C.arrow + '" stroke-width="' + AW + '" marker-end="url(#rt-arrow)"/>'
+          + '<line x1="9" y1="-6" x2="9" y2="6" stroke="' + C.barrierBar + '" stroke-width="2.5"' + (any ? ' stroke-dasharray="3,2.5"' : '') + '/>';
+      };
+      var devSwatch = function (sign) {
+        return '<rect x="0" y="-6" width="14" height="12" fill="' + grey + '" stroke="' + DEV_STROKE[sign] + '" stroke-width="2" rx="2"/>';
+      };
+      var GLYPHS = {
+        dependency: function () { return curve(null); },
+        'negative-offset': function () { return curve('5,4'); },
+        indefinite: function () { return '<rect x="0" y="-6" width="14" height="12" fill="' + grey + '" stroke="' + ink2 + '" stroke-width="1.2" stroke-dasharray="4,2" rx="2"/>'
+          + '<rect x="0" y="-6" width="14" height="12" fill="url(#rt-hatch)" rx="2"/>'; },
+        variable: function () { return '<rect x="0" y="-6" width="7" height="12" fill="' + grey + '" rx="2"/><rect x="7" y="-6" width="7" height="12" fill="' + grey + '" opacity="0.3" rx="2"/>'; },
+        manual: function () { return '<path d="M2,-6 l9,6 l-9,6 z" fill="#ffffff" stroke="' + ink2 + '" stroke-width="1"/>'; },
+        barrier: function () { return barrierGlyph(false); },
+        'barrier-any': function () { return barrierGlyph(true); },
+        'in-flight': function () { return curve('1.5,3'); },
+        planned: function () { return '<rect x="0" y="-3" width="14" height="7" fill="' + grey + '" opacity="0.35" stroke="' + grey + '" stroke-width="1" stroke-dasharray="3,2" rx="2"/>'; },
+        late: function () { return devSwatch('late'); },
+        early: function () { return devSwatch('early'); },
+        'on-time': function () { return devSwatch('on-time'); }
+      };
+      var capacity = {};
+      (program.resourceConstraints || []).forEach(function (rc) { if (rc && rc.task) capacity[rc.task] = rc.maxConcurrent; });
+
+      var items = [];
+      keys.forEach(function (key) {
+        if (key === 'tracks') {
+          tracks.forEach(function (t, ti) { items.push({ key: 'track', glyph: swatch(colorFor(t, ti, null)), label: t.name || 'Track' }); });
+        } else if (key === 'tasks') {
+          var order = taskOrder.slice();
+          if (!order.length) tracks.forEach(function (t) { (t.steps || []).forEach(function (st) { if (st && st.task && order.indexOf(st.task) === -1) order.push(st.task); }); });
+          order.forEach(function (task, i) {
+            var fill = colorBy === 'task' ? (colorOverrides[task] || palette[i % palette.length]) : grey;
+            var cap = (legendOpts.capacity !== false && capacity[task] !== undefined) ? ' (max ' + capacity[task] + ')' : '';
+            items.push({ key: 'task', glyph: swatch(fill), label: (labels['task:' + task] || task) + cap });
+          });
+        } else if (GLYPHS[key]) {
+          if (onlyUsed && !used[key]) return;
+          var text = labels[key] || (key === 'late' ? 'late (>' + Math.round(devThreshold) + 's)' : LEGEND_LABELS[key]);
+          items.push({ key: key, glyph: GLYPHS[key](), label: text });
+        }
+      });
+      if (!items.length) return null;
+
+      var G = 14 * sc, rowH = Math.max(16, FS.legend * 1.7), gap = 18 * sc;
+      items.forEach(function (it) { it.w = G + 6 + measure(it.label, FS.legend, false); });
+      var titleText = typeof legendOpts.title === 'string' ? legendOpts.title : null;
+      var pad = legendOpts.frame ? 8 : 0;
+      var maxW = W - 32 - pad * 2;
+      var cols = (typeof legendOpts.columns === 'number' && legendOpts.columns >= 1) ? Math.floor(legendOpts.columns) : (legendPos === 'right' ? 1 : 0);
+      var x = 0, y = titleText ? rowH : 0, width = titleText ? measure(titleText, FS.legend, true) : 0;
+      if (cols) {
+        var colW = 0;
+        items.forEach(function (it) { colW = Math.max(colW, it.w); });
+        colW += gap;
+        items.forEach(function (it, i) { it.x = (i % cols) * colW; it.y = y + Math.floor(i / cols) * rowH; });
+        width = Math.max(width, Math.min(items.length, cols) * colW - gap);
+        y += Math.ceil(items.length / cols) * rowH;
+      } else {
+        items.forEach(function (it) {
+          if (x > 0 && x + it.w > maxW) { x = 0; y += rowH; }
+          it.x = x; it.y = y;
+          x += it.w + gap;
+          width = Math.max(width, it.x + it.w);
+        });
+        y += rowH;
+      }
+      var boxW = Math.ceil(width + pad * 2), boxH = Math.ceil(y + pad * 2);
+      return {
+        width: boxW, height: boxH, count: items.length,
+        render: function (x0, y0) {
+          var out = ['<g class="rt-legend" data-position="' + legendPos + '" font-size="' + FS.legend + '" fill="' + C.legendText + '">'];
+          if (legendOpts.frame) out.push('<rect x="' + x0 + '" y="' + y0 + '" width="' + boxW + '" height="' + boxH
+            + '" fill="' + (C.bg && C.bg !== 'none' && C.bg !== 'transparent' ? esc(C.bg) : '#ffffff') + '" stroke="' + (classic ? '#d1d5db' : look.rowStroke) + '" rx="3"/>');
+          if (titleText) out.push('<text x="' + (x0 + pad) + '" y="' + (y0 + pad + rowH / 2 + FS.legend * 0.36).toFixed(1) + '" font-weight="600">' + esc(titleText) + '</text>');
+          items.forEach(function (it) {
+            var gx = x0 + pad + it.x, gy = y0 + pad + it.y + rowH / 2;
+            out.push('<g class="rt-legend-item" data-key="' + esc(it.key) + '">'
+              + '<g transform="translate(' + gx.toFixed(1) + ',' + gy.toFixed(1) + ')' + (sc !== 1 ? ' scale(' + sc + ')' : '') + '">' + it.glyph + '</g>'
+              + '<text x="' + (gx + G + 6).toFixed(1) + '" y="' + (gy + FS.legend * 0.36).toFixed(1) + '">' + esc(it.label) + '</text></g>');
+          });
+          out.push('</g>');
+          return out.join('');
+        }
+      };
+    }
   }
 
   // ---------- DOM convenience --------------------------------------------
@@ -1159,13 +1597,16 @@
   }
 
   return {
-    version: '2.0.0-beta.4',
+    version: '2.0.0-beta.5',
     // Program schema versions this engine understands; bumped in step
     // with the package's minor version when new trigger/duration forms
     // are added.
     supportedSchemaVersions: ['0.1.0', '0.2.0-alpha', '0.3.0-alpha'],
     renderTimeline: renderTimeline,
     renderTimelineSvg: renderTimelineSvg,
+    PALETTES: PALETTES,
+    STYLES: Object.keys(STYLES),
+    textWidth: textWidth,
     computeStepTimings: computeStepTimings,
     actualFromRun: actualFromRun,
     timingsFromRun: timingsFromRun,

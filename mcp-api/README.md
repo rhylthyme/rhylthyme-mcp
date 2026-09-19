@@ -599,6 +599,17 @@ In the SQL editor, `mcp_daily_usage`, `mcp_tool_usage_30d` and
 `mcp_external_events`, which drops every client that ever presented the
 operator's user id.
 
+## Preview images
+
+`/api/og/timeline.png` and the inline image blocks rasterise
+`renderTimelineSvg(program, { style: "web" })` with `@resvg/resvg-js`.
+Serverless hosts have no system fonts and resvg draws no text without
+one, so `mcp-api/fonts/` bundles DejaVu Sans (regular and bold, see
+`LICENSE_DEJAVU`) and `vercel.json` ships it with the function
+(`includeFiles`). The SVG names that face and passes
+`fontWidthFactor: 1.14` so labels are fitted to its wider glyphs. A test
+renders with system fonts off and fails if the text stops drawing.
+
 ## Errors and alerts
 
 Every failed request is one JSON line in the function log, whether or not

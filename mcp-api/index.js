@@ -843,10 +843,29 @@ function renderAsciiGantt(program) {
 // With a `run` (a `runs` schema record) the renderer draws planned-vs-actual:
 // the plan as a thin ghost bar under each step's actual bar, outlined by the
 // sign of its end deviation. Without one the output is unchanged.
+// Serverless hosts ship no system fonts, and resvg draws NO text without
+// one (previews used to come out as bars with no labels at all). DejaVu
+// Sans is bundled (fonts/LICENSE_DEJAVU) and is the only face offered, so
+// a preview looks the same everywhere. It is wider than the Helvetica-like
+// metrics the renderer estimates with, hence the width factor.
+const PREVIEW_FONT_FAMILY = "DejaVu Sans, sans-serif";
+const PREVIEW_FONT_WIDTH_FACTOR = 1.14;
+const PREVIEW_FONT_FILES = ["DejaVuSans.ttf", "DejaVuSans-Bold.ttf"].map((f) => require("path").join(__dirname, "fonts", f));
+function resvgOptions(width) {
+  return {
+    fitTo: { mode: "width", value: width || 820 },
+    background: "#ffffff",
+    font: { fontFiles: PREVIEW_FONT_FILES, loadSystemFonts: false, defaultFontFamily: "DejaVu Sans" },
+  };
+}
+
 function renderSvgGantt(program, run) {
+  // The "web" look matches the interactive timeline the link opens (same
+  // vivid palette, flat bars, clock axis), so the preview and the page agree.
+  const look = { style: "web", fontFamily: PREVIEW_FONT_FAMILY, fontWidthFactor: PREVIEW_FONT_WIDTH_FACTOR };
   const svg = run && typeof run === "object"
-    ? TimelineRender.renderTimelineSvg(program, { run })
-    : TimelineRender.renderTimelineSvg(program);
+    ? TimelineRender.renderTimelineSvg(program, Object.assign({ run }, look))
+    : TimelineRender.renderTimelineSvg(program, look);
   return svg || null;
 }
 
@@ -864,12 +883,7 @@ function buildTimelineImageBlock(program, run) {
   if (!svg) return null;
   try {
     const { Resvg } = require("@resvg/resvg-js");
-    const resvg = new Resvg(svg, {
-      // Render at a fixed 820px width to match the SVG's viewBox.
-      // Resvg scales the rest proportionally.
-      fitTo: { mode: "width", value: 820 },
-      background: "#fafafa",
-    });
+    const resvg = new Resvg(svg, resvgOptions(820));
     const png = resvg.render().asPng();
     return {
       type: "image",
@@ -3045,10 +3059,7 @@ async function handleOgTimeline(req, res) {
 
   try {
     const { Resvg } = require("@resvg/resvg-js");
-    const resvg = new Resvg(svg, {
-      fitTo: { mode: "width", value: 820 },
-      background: "#fafafa",
-    });
+    const resvg = new Resvg(svg, resvgOptions(820));
     const png = resvg.render().asPng();
     res.statusCode = 200;
     res.setHeader("Content-Type", "image/png");
@@ -3211,6 +3222,7 @@ module.exports._schemas = { Program, AnyProgram };
 module.exports._VERTICALS = VERTICALS;
 module.exports._programTotalSec = _programTotalSec;
 module.exports._renderSvgGantt = renderSvgGantt;
+module.exports._resvgOptions = resvgOptions;
 module.exports.inlineCdnScripts = inlineCdnScripts;
 module.exports._prompts = Prompts;
 module.exports._analytics = Analytics;

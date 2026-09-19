@@ -610,6 +610,22 @@ test("Program input schema accepts a compound trigger labelled type: \"compound\
   assert.equal(handler._schemas.Program.safeParse(p).success, false);
 });
 
+test("preview PNGs draw their text with no system fonts (bundled DejaVu)", () => {
+  const { Resvg } = require("@resvg/resvg-js");
+  const svg = handler._renderSvgGantt(GOOD);
+  assert.match(svg, /rt-style-web/);
+  assert.match(svg, /font-family="DejaVu Sans, sans-serif"/);
+  const opts = handler._resvgOptions(820);
+  assert.equal(opts.font.loadSystemFonts, false);
+  for (const f of opts.font.fontFiles) assert.ok(require("fs").existsSync(f), f);
+  const withText = new Resvg(svg, opts).render().asPng();
+  const noText = new Resvg(svg.replace(/<text[\s\S]*?<\/text>/g, ""), opts).render().asPng();
+  assert.ok(!withText.equals(noText), "text must change the pixels; a fontless host drew none");
+  // Without any font the two are identical, which is the bug this guards.
+  const bare = { fitTo: opts.fitTo, background: opts.background, font: { loadSystemFonts: false } };
+  assert.ok(new Resvg(svg, bare).render().asPng().equals(new Resvg(svg.replace(/<text[\s\S]*?<\/text>/g, ""), bare).render().asPng()));
+});
+
 test("import_text is registered with its schema, annotations and login gate", async () => {
   const { client } = await connect("kitchen");
   const { tools } = await client.listTools();
