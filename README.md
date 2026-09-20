@@ -304,6 +304,5 @@ those still depend on the hosted service. The PNG preview route
 
 ## License
 
-MIT (this repository, including the `python/` bridge and the plugin
-manifests). The renderer in `static/js/timeline-render.js` and the skill in
-`plugins/rhylthyme/skills/` are Apache-2.0 and say so in their headers.
+Apache-2.0, like the rest of Rhylthyme. (This repository was MIT until
+September 2026.)

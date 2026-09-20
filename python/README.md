@@ -61,7 +61,11 @@ Or the command-line tool: `pip install rhylthyme-cli-runner`, then
 `rhylthyme validate`, `rhylthyme analyze --finish-at 18:00`,
 `rhylthyme publish` (prints the live-timeline URL).
 
-## Upgrading from 0.1.0
+## Versions
+
+0.1.2 is 0.1.1 with its license metadata corrected: the package is Apache-2.0,
+like the rest of Rhylthyme.
+
 
 0.1.0 was a local server with a single `visualize_schedule` tool that opened an
 HTML file in your browser. 0.1.1 replaces it with the bridge: the same
@@ -69,4 +73,4 @@ HTML file in your browser. 0.1.1 replaces it with the bridge: the same
 the hosted server, and links to live timelines instead of local files.
 
 Docs: https://docs.rhylthyme.com/web-app/mcp/ · Source:
-https://github.com/rhylthyme/rhylthyme-mcp (`python/`) · License: MIT
+https://github.com/rhylthyme/rhylthyme-mcp (`python/`) · License: Apache-2.0

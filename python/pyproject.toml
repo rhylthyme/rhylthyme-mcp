@@ -4,11 +4,11 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "rhylthyme-mcp"
-version = "0.1.1"
+version = "0.1.2"
 description = "Stdio bridge to the hosted Rhylthyme MCP server: schedule cooking, lab protocols, events and workouts as live timelines"
 readme = "README.md"
 requires-python = ">=3.10"
-license = {text = "MIT"}
+license = {text = "Apache-2.0"}
 keywords = ["mcp", "scheduling", "timeline", "recipes", "lab-protocols"]
 dependencies = [
     "mcp>=1.10.0,<3",

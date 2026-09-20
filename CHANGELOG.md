@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased (2026-09-20)
+
+- **License changed from MIT to Apache-2.0**, matching the specification, the command-line tool, the examples and the timeline engine. Versions published before this date remain available under MIT
+- OAuth 2.1 resource server (Supabase Auth is the authorization server); account tools no longer need a pasted token in clients that can connect an account
+- `tools/list` cut from about 9,300 to about 3,600 model-facing tokens; long descriptions moved to the `rhylthyme://guide/tools` resource
+- `python/`: the `rhylthyme-mcp` PyPI package is now a stdio bridge to the hosted server (0.1.1; 0.1.2 corrects its license metadata)
+- Claude plugin marketplace (`.claude-plugin/marketplace.json`, `plugins/rhylthyme/`)
+
 ## v1.3.0 (2026-09-09)
 
 Repository synchronized with the code running at mcp.rhylthyme.com.

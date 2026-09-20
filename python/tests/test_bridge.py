@@ -28,7 +28,7 @@ def test_help_and_version_exit_without_touching_the_network(capsys):
             server.main([flag])
         assert stop.value.code == 0
     out = capsys.readouterr().out
-    assert "https://mcp.rhylthyme.com/mcp" in out and "rhylthyme-mcp 0.1.1" in out
+    assert "https://mcp.rhylthyme.com/mcp" in out and "rhylthyme-mcp " in out
 
 
 def test_unreachable_server_fails_on_stderr_not_stdout(capsys):

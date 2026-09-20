@@ -2,14 +2,14 @@
   "name": "rhylthyme",
   "displayName": "Rhylthyme",
   "description": "Schedule work a person carries out against a clock (recipes, lab protocols, run-of-shows, workouts) and publish it as a live timeline. Bundles the hosted Rhylthyme MCP server and a skill for authoring, validating and analyzing schedules.",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "author": {
     "name": "Rhylthyme",
     "url": "https://www.rhylthyme.com"
   },
   "homepage": "https://docs.rhylthyme.com/web-app/mcp/",
   "repository": "https://github.com/rhylthyme/rhylthyme-mcp",
-  "license": "MIT",
+  "license": "Apache-2.0",
   "keywords": [
     "scheduling",
     "timeline",
