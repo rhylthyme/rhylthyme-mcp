@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "rhylthyme-mcp"
+version = "0.1.1"
+description = "Stdio bridge to the hosted Rhylthyme MCP server: schedule cooking, lab protocols, events and workouts as live timelines"
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "Apache-2.0"}
+keywords = ["mcp", "scheduling", "timeline", "recipes", "lab-protocols"]
+dependencies = [
+    "mcp>=1.10.0,<3",
+]
+
+[project.urls]
+Homepage = "https://www.rhylthyme.com"
+Documentation = "https://docs.rhylthyme.com/web-app/mcp/"
+Source = "https://github.com/rhylthyme/rhylthyme-mcp"
+
+[project.scripts]
+rhylthyme-mcp = "rhylthyme_mcp.server:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]

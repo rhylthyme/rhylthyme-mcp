@@ -128,6 +128,14 @@ resp = client.beta.messages.create(
 )
 ```
 
+**Clients that can only launch a command**: `pip install rhylthyme-mcp` gives a
+`rhylthyme-mcp` command, a stdio bridge that passes every request through to
+the hosted server (source in [`python/`](python)):
+
+```json
+{ "mcpServers": { "rhylthyme": { "command": "rhylthyme-mcp", "args": ["kitchen"] } } }
+```
+
 **No MCP client at all** (an agent with a shell, a script): the server is
 stateless, so one POST works with no handshake and no account.
 
@@ -238,6 +246,7 @@ those still depend on the hosted service. The PNG preview route
 - `static/schema/`, `static/examples/`: the resources
 - `src/index.js`: standalone HTTP runner
 - `mcp-api/server.json`: MCP registry manifest
+- `python/`: the `rhylthyme-mcp` PyPI package, a stdio bridge to the hosted server (`cd python && PYTHONPATH=src pytest tests`)
 
 ## Known limitations
 
