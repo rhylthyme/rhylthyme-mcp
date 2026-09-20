@@ -1004,9 +1004,13 @@ test("analyze_schedule declares the history arguments and the prediction output 
   assert.ok(props.history, "history missing from the input schema");
   assert.equal(props.history.type, "array");
   assert.ok(props.predictionContext, "predictionContext missing");
+  // The keys are named in the description and spelled out in the tool guide,
+  // not declared one by one: that cost ~1,500 characters of every tools/list.
+  const toolGuide = (await client.readResource({ uri: "rhylthyme://guide/tools" })).contents[0].text;
   for (const key of ["environmentId", "userTags", "userId", "programVersion",
                      "minIdentical", "minModel", "corrThreshold", "verdicts"]) {
-    assert.ok(props.predictionContext.properties[key], `predictionContext.${key} missing`);
+    assert.ok(props.predictionContext.description.includes(key), `predictionContext.${key} not named`);
+    assert.ok(toolGuide.includes("`" + key + "`"), `tool guide does not explain ${key}`);
   }
   assert.deepEqual(props.useDurations.enum, ["planned", "predicted"]);
   assert.equal(props.useDurations.default, "planned");
@@ -1314,4 +1318,71 @@ test("load_run points at the two things to do with a run", async () => {
   } finally {
     global.fetch = realFetch;
   }
+});
+
+// ---- tools/list budget ------------------------------------------------------
+// A host pastes every tool definition into the model's context on every turn.
+// The list was ~11,800 tokens; an agent choosing among many servers skips one
+// that expensive. What the model sees is name + description + inputSchema.
+
+const modelFacing = (tool) => JSON.stringify({ name: tool.name, description: tool.description, inputSchema: tool.inputSchema }).length;
+
+test("tools/list stays inside its budget on every endpoint", async () => {
+  for (const vertical of ["generic", "kitchen", "lab", "events", "gym"]) {
+    const { client } = await connect(vertical);
+    const { tools } = await client.listTools();
+    const seen = tools.reduce((n, t) => n + modelFacing(t), 0);
+    const whole = JSON.stringify(tools).length;
+    assert.ok(seen <= 16000, `${vertical}: model-facing definitions are ${seen} chars (~${Math.round(seen / 4)} tokens); budget 16000`);
+    assert.ok(whole <= 24000, `${vertical}: tools/list is ${whole} chars; budget 24000`);
+    for (const tool of tools) {
+      assert.ok(tool.description.length <= 400, `${vertical}/${tool.name}: description is ${tool.description.length} chars; keep it under 400 and put the rest in LONG_DESC`);
+      assert.ok(modelFacing(tool) <= 2000, `${vertical}/${tool.name}: ${modelFacing(tool)} chars`);
+    }
+  }
+});
+
+test("the program shape is spelled out exactly once, and no tool inlines the JSON Schema", async () => {
+  const { client } = await connect("generic");
+  const { tools } = await client.listTools();
+  const withShape = tools.filter((t) => JSON.stringify(t.inputSchema).includes("programStartOffset"));
+  assert.deepEqual(withShape.map((t) => t.name), ["validate_program"]);
+  for (const name of ["visualize_schedule", "save_program", "analyze_schedule", "preview_timeline"]) {
+    const program = tools.find((t) => t.name === name).inputSchema.properties.program;
+    assert.equal(program.type, "object");
+    assert.ok(!program.properties || !Object.keys(program.properties).length, `${name} inlines the program schema again`);
+    assert.match(program.description, /validate_program/);
+  }
+});
+
+test("the long descriptions live on as rhylthyme://guide/tools, per vertical", async () => {
+  for (const [vertical, oneShot] of [["generic", null], ["kitchen", "cook_recipe"], ["lab", "run_protocol"]]) {
+    const { client } = await connect(vertical);
+    const { tools } = await client.listTools();
+    const guide = (await client.readResource({ uri: "rhylthyme://guide/tools" })).contents[0].text;
+    for (const tool of tools) assert.ok(guide.includes(`## ${tool.name}\n`), `${vertical}: guide has no section for ${tool.name}`);
+    if (oneShot) assert.ok(guide.includes(`## ${oneShot}\n`));
+    assert.match(guide, /E_INSTANCES_ON_SINGLE/, "validate_program's finding codes");
+    assert.match(guide, /predictedCriticalPath/, "analyze_schedule's history output");
+    assert.match(guide, /get_renderer_source/);
+  }
+  const kitchen = (await (await connect("kitchen")).client.readResource({ uri: "rhylthyme://guide/tools" })).contents[0].text;
+  assert.match(kitchen, /cookbook/, "the kitchen guide keeps the kitchen wording");
+});
+
+test("visualize_schedule takes a loose program: nothing stripped, problems reported by the validator", async () => {
+  const { client } = await connect("generic");
+  const realFetch = global.fetch;
+  let shared = null;
+  global.fetch = async (url, init) => {
+    if (init && init.body) { try { shared = JSON.parse(init.body); } catch (_) { /* not json */ } }
+    return { ok: true, status: 200, json: async () => ({ share_id: "abc123", id: "abc123" }), text: async () => "{}" };
+  };
+  try {
+    const bad = await client.callTool({ name: "visualize_schedule", arguments: { program: { name: "no tracks" } } });
+    assert.equal(bad.isError, true);
+    assert.match(bad.content[0].text, /validation errors|tracks/i, "an actionable finding, not a schema rejection");
+    assert.ok(!/invalid_type|Invalid arguments/i.test(bad.content[0].text), bad.content[0].text);
+  } finally { global.fetch = realFetch; }
+  assert.equal(shared, null, "nothing was published");
 });

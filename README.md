@@ -150,6 +150,7 @@ and say what to do next.
 
 - `rhylthyme://schema/program`: the program JSON Schema (0.3.0-alpha)
 - `rhylthyme://guide/authoring`: one-page authoring rules, trigger vocabulary, how to make tracks finish together, repeated work (`replicates`, per-instance `instances: "each"` chains, `"all"` barriers and `maxInFlight`), choice branching
+- `rhylthyme://guide/tools`: the long form of every tool description. The tool list itself is kept to about 3,600 tokens so it is cheap to keep connected
 - `rhylthyme://examples/{breakfast_schedule, lab_experiment, stir_fry_with_choice, hiit_cardio_workout, corporate_presentation, cookies_three_trays}`: complete valid programs (`cookies_three_trays` is the 0.3.0-alpha per-instance / in-flight worked example)
 - prompt `plan_schedule(goal, finishAt?, constraints?)`: walks the model through search → build → validate → analyze → visualize, and names `replicates` / `instances` / `maxInFlight` in its constraints step
 

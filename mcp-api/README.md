@@ -481,12 +481,36 @@ The pure helpers are exported from `schedule.js`:
 `rhylthyme_server/rhylthyme/predict.py`, and the two are pinned by
 `rhylthyme-cli-runner/tests/fixtures/history/predict-cases.json`.
 
+## Tool definition budget
+
+A host pastes every tool definition into the model's context on every turn,
+so `tools/list` is kept small: about 3,600 tokens of name, description and
+input schema for 18 tools (it was about 9,300). Three rules keep it there, and
+`index.test.js` enforces them:
+
+- **Descriptions are one to three sentences** (400 characters at most) that
+  say what the tool is for in words a user would say. The long forms live in
+  `LONG_DESC` and are served, per vertical, as `rhylthyme://guide/tools`, with
+  the arguments the list only names (`predictionContext`, `calibrate_program`'s
+  options) spelled out.
+- **No tool inlines the program JSON Schema.** Programs are accepted as loose
+  objects and the validator reports problems with a code and a fix, which is
+  more use to a model than a zod rejection. The shape is written out once, as a
+  paragraph on `validate_program`'s `program` argument; the full schema is the
+  `rhylthyme://schema/program` resource.
+- **The account token is described once** (`TOKEN_DESC`) and optional
+  everywhere; a connected account needs none.
+
+When adding a tool: put the short text in `SHORT`, the long text in
+`LONG_DESC`, and run `npm test`; the budget test names the tool that went over.
+
 ## Resources and prompts
 
 - `rhylthyme://schema/program` — full JSON Schema (0.3.0-alpha; adds
   `instances: "each" | "all" | "any"` on step-referencing triggers, and
   still validates 0.1.0 / 0.2.0-alpha programs)
 - `rhylthyme://guide/authoring` — one-page authoring cheat-sheet.
+- `rhylthyme://guide/tools` — the long form of every tool description, per vertical (see *Tool definition budget* below).
   Its "Repeating work: per-instance chains, barriers and in-flight
   limits" section documents `replicates` (`count` / `mode` / `delay`),
   `instances: "each" | "all" | "any"`, `maxInFlight` versus
@@ -599,6 +623,51 @@ In the SQL editor, `mcp_daily_usage`, `mcp_tool_usage_30d` and
 `mcp_external_events`, which drops every client that ever presented the
 operator's user id.
 
+## Authorization (OAuth 2.1)
+
+The server follows the MCP authorization spec (2025-06-18) as an OAuth
+*resource server*. The *authorization server* is Supabase Auth's OAuth 2.1
+server for the project, the same one that signs users in with Google, Apple
+and email, so an access token is an ordinary Supabase user JWT and
+www.rhylthyme.com's API validates it the way it validates the web app's.
+`oauth.js` verifies no signatures and mints nothing.
+
+| What | Where |
+|---|---|
+| Protected-resource metadata (RFC 9728) | `/.well-known/oauth-protected-resource[/<path>]`, e.g. `.../lab/mcp` |
+| Authorization-server metadata (RFC 8414) | Supabase: `https://<ref>.supabase.co/.well-known/oauth-authorization-server/auth/v1`; mirrored at `/.well-known/oauth-authorization-server` for clients written against the 2025-03-26 spec |
+| Consent screen | `https://www.rhylthyme.com/oauth/consent?authorization_id=...` (Flask, `oauth_consent_page`) |
+| Credential | `Authorization: Bearer <token>`; tools read it through `OAuth.resolveToken()` |
+
+**Step-up, not a wall.** The public tools (search, validate, analyze,
+visualize, the one-shots) never ask for anything. Only a `tools/call` that
+needs an account (`list_my_programs`, `load_program`, `save_program`,
+`list_runs`, `load_run`, `calibrate_program`, `import_text`, and
+`import_from_source` with `action: import|random` or the Benchling source)
+and carries no credential at all is answered with `401` and
+`WWW-Authenticate: Bearer resource_metadata="..."`, which is what makes an
+OAuth-capable host open its Connect flow. An expired bearer token gets the
+same with `error="invalid_token"` so the host refreshes it.
+
+**The pasted-token path still works.** A `token` argument wins over the
+header, so the `login` tool, the `rhylthyme` CLI and hosts without OAuth are
+unaffected.
+
+**One-time Supabase setup** (dashboard): Authentication > OAuth Server:
+enable it, set the authorization path to `/oauth/consent`, and allow dynamic
+client registration (hosts such as Claude register themselves). Add
+`https://www.rhylthyme.com/oauth/consent` to Authentication > URL
+Configuration > Redirect URLs. Asymmetric JWT signing keys are recommended.
+Until that switch is on, no challenge is sent: the server probes the
+authorization server's metadata before its first 401 (cached for a minute
+while it fails, an hour once it works) and otherwise lets the tool answer with
+the pasted-token instructions, so a host is never sent into a Connect flow
+that cannot finish. Turning the switch on takes effect within a minute, with
+no deploy.
+`MCP_OAUTH_ISSUER` overrides the issuer; `MCP_OAUTH_DISABLED=1` turns the
+challenge and the metadata off. `rhylthyme mcp-test -k oauth -k login-gate`
+checks the whole chain, including whether Supabase's side is enabled.
+
 ## Preview images
 
 `/api/og/timeline.png` and the inline image blocks rasterise
@@ -650,13 +719,7 @@ mcp-publisher publish mcp-api/server.json
 
 ## Known limitations / next steps
 
-- **Auth is copy-paste.** `login` hands the user a URL and expects a
-  Supabase access token pasted back; the token expires after ~1 hour.
-  Claude Desktop / claude.ai connectors expect OAuth 2.1 with dynamic
-  client registration for authenticated servers. `mcp-handler` ships
-  `withMcpAuth` + `protectedResourceHandler`; wiring Supabase as the
-  authorization server would remove the paste step and is the single
-  biggest UX upgrade left.
+- **Auth.** OAuth 2.1 is supported (see Authorization above); the copy-paste `login` token remains as the fallback for hosts that cannot connect accounts, and expires after about an hour.
 - `search_public_recipes` searches one environment at a time (the
   catalog API has no "all" mode); the generic endpoint defaults to
   `kitchen` and says so.

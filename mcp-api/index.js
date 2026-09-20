@@ -28,6 +28,7 @@
 //              list_my_programs, load_program, save_program,
 //              get_renderer_source (+ two vertical-specific one-shots)
 //   Resources  rhylthyme://schema/program, rhylthyme://guide/authoring,
+//              rhylthyme://guide/tools (the long tool descriptions),
 //              rhylthyme://examples/<name>
 //   Prompts    plan_schedule (+ a vertical-specific variant)
 //
@@ -49,6 +50,7 @@ const TimelineRender = require("../static/js/timeline-render.js");
 const Schedule = require("./schedule.js");
 const Prompts = require("./prompts.js");
 const Analytics = require("./analytics.js");
+const OAuth = require("./oauth.js");
 // Bundled copies of the spec + a few example programs, exposed as MCP
 // resources. Kept under static/ so the same files are also fetchable
 // over HTTPS (www.rhylthyme.com/static/schema/…, /static/examples/…).
@@ -266,7 +268,7 @@ function serverInstructions(vertical) {
     "",
     "Authoring rules: stepIds unique across the whole program; steps in one track never overlap (chain with afterStep); every `task` used by a step has a matching resourceConstraint; durations in seconds (numbers) or time strings (\"5m\", \"1h30m\"); repeated work is `replicates` on ONE step with `instances: \"each\"`/`\"all\"` and `maxInFlight`, never copied steps; to make everything finish together, delay short tracks with programStartOffset or afterStep, and pass finishAt to analyze_schedule for wall-clock start times.",
     "",
-    "Authoring from a goal or a source text: run the **plan_schedule** prompt — four turns (read the source back → confirm the program model → extract the steps with the words they came from → assign tracks and triggers). Without multi-message prompt support, read `rhylthyme://guide/extraction` for the same four turns. `rhylthyme://guide/authoring` is the cheat-sheet, `rhylthyme://schema/program` the full JSON schema, `rhylthyme://examples/*` complete valid programs.",
+    "Authoring from a goal or a source text: run the **plan_schedule** prompt — four turns (read the source back → confirm the program model → extract the steps with the words they came from → assign tracks and triggers). Without multi-message prompt support, read `rhylthyme://guide/extraction` for the same four turns. `rhylthyme://guide/authoring` is the cheat-sheet, `rhylthyme://guide/tools` the long form of each tool, `rhylthyme://schema/program` the full JSON schema, `rhylthyme://examples/*` complete valid programs.",
   ].filter((l) => l !== "").join("\n");
 }
 
@@ -275,7 +277,7 @@ function serverInstructions(vertical) {
 // makes it easy to compare/edit across verticals.
 // ---------------------------------------------------------------------
 
-const DESC = {
+const LONG_DESC = {
   visualize_schedule: {
     generic:
       "Render a multi-step parallel schedule as a live timeline (cooking, lab protocols, event run-of-show, training). **Call this for ANY schedule you produce — imported, catalog match, or built freehand.** A schedule belongs in a visualization, never in prose. The program is validated first (same checks as validate_program); invalid programs are refused with fix hints instead of being published. Returns a markdown preview (cover photo if any, equipment list, ingredient list, ASCII Gantt timeline, chronological itinerary, schedule check) and a shareable rhylthyme.com URL with the interactive view.",
@@ -446,6 +448,141 @@ const DESC = {
   },
 };
 
+// Long forms of the descriptions that used to be inline in the registrations.
+LONG_DESC.validate_program = { generic: "Check a Rhylthyme program for structural and scheduling errors BEFORE visualizing or saving it: missing/duplicate ids, dangling afterStep references, dependency cycles, steps that overlap within a track, tasks with no resourceConstraint, unparseable durations, invalid choice references, and schema 0.3.0-alpha `instances`/`replicates` misuse (E_INSTANCES_ON_SINGLE, E_EACH_WITH_REPLICATES, E_EACH_COUNT_MISMATCH, E_INFLIGHT_GT_COUNT, E_INFLIGHT_NO_CHAIN). Every finding has a `code`, a `message` and a `fix` hint — apply the fixes and re-run until `valid` is true. Warnings (e.g. tracks that finish far apart, W_UNBARRIERED_CHAIN) are advisory; `info` notes (I_IMPLICIT_BARRIER: a replicated step referenced without `instances`) suggest making a barrier explicit. Pure computation: no network, no side effects, safe to call repeatedly." };
+LONG_DESC.analyze_schedule = { generic: "Resolve a Rhylthyme program onto the clock and report what the live runner will do: every step's start/end (seconds from start and, if you pass `finishAt` or `startAt`, ISO wall-clock times), total makespan, the critical path, `bindingConstraints` (what gates each critical-path edge — an in-flight cap, a saturated task, an offset, or a plain dependency), resource conflicts tagged `kind: \"maxConcurrent\"` (more steps claim a task than its maxConcurrent allows) or `kind: \"inFlight\"` (more instances of a replicated step are between it and its barrier than `replicates.maxInFlight` allows), `inFlight` windows per replicated step, peak concurrency vs. declared actors, and per-track slack (instances get their own sub-track rows, tagged with `parentTrackId` / `instanceOf`). Use it to answer 'when do I start the potatoes so everything is ready at 6pm?' (pass finishAt), to find why a schedule is longer than expected (critical path and binding constraints — e.g. the cooling rack, not the oven), or to check equipment contention before visualizing. Pure computation; also returns validation findings so you can fix problems in the same turn.\n\n**Analysing against real history.** Pass `history` (run records from **load_run**, or from `rhylthyme runs` on disk) and every step with enough measurements gains `predicted: {seconds, low, high, basis, n}` beside its planned duration, plus top-level `predictedMakespan` and `predictedCriticalPath`. `basis` is `\"identical\"` (runs of the same program version, environment and variance factors — their median), `\"model\"` (a per-step regression on the factors that correlate) or `\"none\"` (no usable measurement). Simpler still: give `program_id` (a UUID from **list_my_programs**) plus `token` and the tool loads the caller's own recorded runs of that program for you. `useDurations: \"predicted\"` then recomputes the makespan, itinerary, critical path and conflicts from the predicted durations instead of the authored ones; the default stays `\"planned\"` so a program is analysed on what it says." };
+LONG_DESC.preview_timeline = { generic: "Render a Rhylthyme program as a static Gantt-chart image so the user can SEE what the live timeline looks like, without committing to opening the live URL. Use this when the user asks for a 'preview' or 'picture' of the timeline, or when you have just built a freehand program and want to give the user a visual before they commit. The tool returns ONLY an image plus a one-line caption — no recipe prose, no ingredient list, no copyright concerns. Just the structural visualization of which step runs when on which track.\n\nPair with **visualize_schedule** when the user wants the full shareable interactive URL too. This tool is for the visual-only quick preview case.\n\n**Planned versus actual.** Pass `run` — a recorded run of the same program, as **load_run** returns it in `run` — and the picture becomes a comparison: each step's real bar over a thin ghost bar at its planned position, outlined green where it finished early and amber where it ran late. That is the fastest way to show a person where a plan drifted.\n\n**Rendering option for HTML-artifact-capable clients (Claude.ai etc.):** Claude.ai's artifact sandbox blocks external scripts from non-cdnjs sources, so a `<script src=\"https://kitchen.rhylthyme.com/...\">` tag will fail. To render the timeline yourself with the official Rhylthyme look, call **get_renderer_source** first to fetch the renderer's full source as a string, then embed that source verbatim inside a `<script>…</script>` block in your HTML artifact, followed by your program JSON and a call to `Rhylthyme.renderTimeline(document.getElementById('t'), program)`. The renderer is open-source (Apache-2.0), zero-dependency, ~9KB." };
+LONG_DESC.get_renderer_source = { generic: "Returns the source code of the open-source Rhylthyme timeline renderer (Apache-2.0, ~9KB, zero dependencies). Use this when you're building an HTML artifact and the artifact sandbox blocks external scripts (e.g., Claude.ai's CSP only allows cdnjs.cloudflare.com). The returned text is plain JavaScript with a UMD wrapper — paste it verbatim inside a `<script>…</script>` block in your artifact, then call `Rhylthyme.renderTimeline(container, program)` where `program` is the Rhylthyme program JSON. After this call, the global `Rhylthyme` object exposes: `renderTimeline(container, program)`, `renderTimelineSvg(program)`, `computeStepTimings(program)`, `parseSeconds(value)` and `stepDurationSeconds(step)`." };
+
+// ---------------------------------------------------------------------
+// What tools/list actually carries. A host pastes every tool definition
+// into the model's context on every turn, so these are short: what the
+// tool is for, in words a user would say, and what it needs. The long
+// forms above are not lost; they are served per vertical as
+// rhylthyme://guide/tools. Budget: the whole list under ~4k tokens
+// (index.test.js holds it there).
+// ---------------------------------------------------------------------
+
+const WORDS = {
+  generic: { item: "program", items: "programs", catalog: "recipes, lab protocols, event templates and workouts", by: "name or keyword",
+    say: "'plan this so it all finishes at 6', 'when do I start each thing'" },
+  kitchen: { item: "recipe", items: "recipes", catalog: "recipes", by: "dish, cuisine or ingredient",
+    say: "'time these three dishes', 'Thanksgiving with one oven', 'when does the roast go in'" },
+  lab: { item: "protocol", items: "protocols", catalog: "lab protocols", by: "technique, assay or kit",
+    say: "'time this Western blot', 'two PCRs, one thermocycler', 'imaging at 4 pm, when do I start'" },
+  events: { item: "run-of-show", items: "run-of-shows", catalog: "event templates", by: "event type",
+    say: "'build the run-of-show', 'cue sheet for the ceremony', 'doors at 7, work backwards'" },
+  gym: { item: "workout", items: "workouts", catalog: "workouts", by: "style, body part or modality",
+    say: "'time this circuit', 'push day with rest timers', '45-minute session'" },
+};
+const ONE_SHOT_SAY = {
+  kitchen: ["'let's make pad thai', 'cook chicken tikka tonight'", "'surprise me', 'what should I cook tonight'"],
+  lab: ["'run a Western blot', 'start a PCR'", "'show me an example protocol'"],
+  events: ["'plan a wedding day', 'conference run-of-show'", "'show me an example event'"],
+  gym: ["'let's do HIIT', 'push day workout'", "'pick a workout for me'"],
+};
+const ACCOUNT = "Needs the user's Rhylthyme account.";
+
+const SHORT = {
+  validate_program: () =>
+    "Check a program before publishing or saving it: ids, dangling or cyclic triggers, steps overlapping in a track, tasks with no resourceConstraint, durations, replicates/instances misuse. Every finding has a code, a message and a fix; apply the fixes and re-run until valid. Pure computation.",
+  analyze_schedule: () =>
+    "Put a program on the clock: each step's start and end, total length, the critical path and what gates it, resource conflicts, slack per track. Pass finishAt to answer 'when do I start X so everything is ready at 6pm?'. Pure computation. With `history` (or `program_id`) it also predicts durations from recorded runs; see rhylthyme://guide/tools.",
+  visualize_schedule: (w) =>
+    `Publish a program as a live timeline and return its URL. This is the deliverable for ANY ${w.item === "program" ? "schedule" : w.item} you produce (${w.say}): never describe a schedule in prose. Validates first and refuses an invalid program with fix hints. Also returns an ASCII Gantt and an itinerary to quote.`,
+  preview_timeline: () =>
+    "Return a static Gantt image of a program, for 'show me a preview' or 'a picture of the timeline'. Image and caption only; use visualize_schedule for the live URL. Planned versus actual: pass `run` (from load_run) to draw the real bars over the plan.",
+  get_renderer_source: () =>
+    "Return the open-source timeline renderer's JavaScript (Apache-2.0, ~9KB, no dependencies) to paste into a <script> in an HTML artifact whose sandbox blocks external scripts; then call Rhylthyme.renderTimeline(container, program).",
+  import_from_source: () =>
+    "Import a recipe or protocol from a URL or service into a program. source: spoonacular, themealdb (recipes); protocolsio, opentrons, benchling (lab); cooklang (.cook URL). action: search (no login), import (query = URL or id), random. import, random and benchling need the account. `enrich: true` splits an import into parallel tracks. Then call visualize_schedule.",
+  import_text: (w) =>
+    `Turn pasted text (a ${w.item === "program" ? "recipe, protocol, run sheet or training plan" : w.item}) into a validated multi-track program on the server, in four model turns, with a table of the source span each step came from. Use when the user pastes the steps and no URL importer fits. ${ACCOUNT} Capped per day; you can instead author the program yourself and call validate_program.`,
+  create_environment: () =>
+    "Describe a workspace's equipment limits (one oven, two centrifuges, one stage) as resourceConstraints to copy into a program, so steps that share equipment are scheduled around each other.",
+  login: (w) =>
+    `For apps that cannot connect the Rhylthyme account directly: returns a sign-in URL, then accepts the pasted token. Only the user's own saved ${w.items}, runs and imports need it; everything public works without. Tokens last about an hour.`,
+  list_my_programs: (w) => `List the user's saved ${w.items}. ${ACCOUNT}`,
+  load_program: (w) => `Open one of the user's saved ${w.items} by id: summary plus live-timeline URL. ${ACCOUNT}`,
+  save_program: (w) => `Save a ${w.item} to the user's account ('save this for later'); the same programId updates it. ${ACCOUNT}`,
+  list_runs: (w) =>
+    `List recorded runs of a saved ${w.item}: when, how it ended, actual against planned length. For 'how long did this take last time?'. ${ACCOUNT}`,
+  load_run: () =>
+    `Open one recorded run: planned against actual timing per step, what ended each step, pauses. Shows where a plan drifts. ${ACCOUNT}`,
+  calibrate_program: (w) =>
+    `Propose durations for a saved ${w.item} from its recorded runs: median as the default, P10 to P90 as the range, never narrower than the author's, with the evidence per step and the effect on total length. Saves nothing: pass \`accept\` to get the calibrated program, then save_program. ${ACCOUNT}`,
+  list_public_runs: (w) =>
+    `List anonymous runs other people contributed for one exact ${w.item} version: actual against planned length, and their conditions. For 'how long does this really take?'. No login needed. Pass \`program\` or \`program_hash\`.`,
+  search_public_recipes: (w, cfg) =>
+    `Search the public catalog of ${w.catalog} by ${w.by}. Returns ids, names, descriptions and URLs; no login. Pass an id to load_public_recipe${cfg.oneShot ? `, or a keyword straight to ${cfg.oneShot.name}` : ""}.`,
+  load_public_recipe: (w) =>
+    `Open a public ${w.item === "program" ? "catalog entry" : w.item} by id: summary plus live-timeline URL (no visualize_schedule call needed).`,
+};
+
+const DESC = {};
+Object.keys(WORDS).forEach((vertical) => {
+  const cfg = VERTICALS[vertical] || {};
+  Object.keys(SHORT).forEach((tool) => {
+    (DESC[tool] = DESC[tool] || {})[vertical] = SHORT[tool](WORDS[vertical], cfg);
+  });
+  const say = ONE_SHOT_SAY[vertical];
+  if (cfg.oneShot && say) {
+    DESC[cfg.oneShot.name] = { [vertical]: `Find the best public ${WORDS[vertical].item} for a keyword and return its live timeline in one call. Use for ${say[0]}.` };
+  }
+  if (cfg.random && say) {
+    DESC[cfg.random.name] = { [vertical]: `Pick a random public ${WORDS[vertical].item} and return its live timeline. Use for ${say[1]}.` };
+  }
+});
+
+// The program shape in one paragraph: far shorter than the JSON Schema
+// that used to be inlined into visualize_schedule and save_program, and
+// the validator, not zod, is what reports problems.
+const PROGRAM_SHAPE =
+  "Program JSON: {programId, name, environmentType?, actors?, tracks: [{trackId, name, steps: [{stepId (unique program-wide), name, task?, duration, startTrigger, replicates?, choice?}]}], resourceConstraints: [{task, maxConcurrent}], metadata?}. " +
+  "duration: {type:'fixed', seconds} | {type:'variable', minSeconds, maxSeconds, defaultSeconds} | {type:'indefinite', defaultSeconds}; seconds are numbers or strings like '5m', '1h30m'. " +
+  "startTrigger: {type:'programStart'} | {type:'programStartOffset', offsetSeconds} | {type:'afterStep', stepId, offsetSeconds?, event?:'start', instances?:'each'|'all'} | {type:'afterStepWithBuffer', stepId, bufferSeconds} | {type:'manual'}. " +
+  "Steps in one track never overlap; every task needs a resourceConstraint. Rules and examples: rhylthyme://guide/authoring; full schema: rhylthyme://schema/program.";
+const TOKEN_DESC = "Access token from the login tool. Omit when the account is connected.";
+
+function toolGuide(vertical) {
+  const cfg = VERTICALS[vertical] || {};
+  const out = [
+    "# Rhylthyme tool details",
+    "",
+    "The tool list carries one or two sentences per tool. This is the long form: when to use each tool, what it returns, and the arguments that are only named in the list.",
+    "",
+  ];
+  const long = Object.assign({}, LONG_DESC);
+  if (cfg.oneShot) long[cfg.oneShot.name] = { generic: cfg.oneShot.description };
+  if (cfg.random) long[cfg.random.name] = { generic: cfg.random.description };
+  Object.keys(long).forEach((tool) => {
+    out.push(`## ${tool}`, "", long[tool][vertical] || long[tool].generic, "");
+    if (TOOL_ARGUMENT_NOTES[tool]) out.push(TOOL_ARGUMENT_NOTES[tool], "");
+  });
+  return out.join("\n");
+}
+
+const TOOL_ARGUMENT_NOTES = {
+  analyze_schedule: [
+    "**Arguments.**",
+    "- `finishAt` / `startAt`: ISO 8601 datetimes, e.g. `2026-11-26T18:00:00-05:00`. Start times are computed backwards from `finishAt`; `startAt` is ignored when both are given.",
+    "- `history`: recorded runs of this program (`runs` schema 0.1.0-alpha documents, as load_run returns them in `run`). Only runs that measure the executor count (completed, wall clock, speed 1), and within them only steps a person ended, unpaused.",
+    "- `program_id` (+ `token` or a connected account): with no `history`, the caller's own recorded runs of that saved program are loaded and used.",
+    "- `useDurations`: `planned` (default) analyses the program as authored; `predicted` analyses it as history says it will run.",
+    "- `predictionContext`, all optional: `environmentId` (runs recorded elsewhere are not \"identical\"); `userTags` (the variance factors of the run being planned, e.g. `{\"turkeyKg\": 7, \"oven\": \"gas\"}`); `userId` (prefer this person's own runs); `programVersion` (`sha256:<hex>`, defaults to the hash of `program`); `minIdentical` (identical-context runs needed before their median is used, default 3); `minModel` (measurements needed before a regression is fitted, default 8); `corrThreshold` (minimum |Pearson r| for a factor to enter the model, default 0.3); `verdicts` (per-step inferentiality verdicts from `rhylthyme runs report`; an executor-controlled step gets no prediction).",
+  ].join("\n"),
+  calibrate_program: [
+    "**Arguments.**",
+    "- `program`: the JSON to calibrate; omit it and `program_id`'s saved JSON is used.",
+    "- `history`: run records to use instead of the ones stored against `program_id`.",
+    "- `k`: measurements a step needs before it gets a proposal (default 5); a step under it is reported as skipped with its statistics.",
+    "- `since`: only runs started on or after this date (YYYY-MM-DD or ISO).",
+    "- `accept`: step ids, or `\"all\"`. The result then also carries the calibrated program with `calibratedFrom` beside each written duration. Nothing is saved either way.",
+  ].join("\n"),
+  import_from_source: "**`enrich`.** Runs the relationship turn of the plan_schedule prompt server-side against the imported step list: steps, durations and resources are kept as imported, tracks and start triggers are inferred, and any step the model adds is marked `metadata.inferred`. Costs a model call and is capped per day; if it fails you still get the plain import.",
+  import_text: "**Arguments.** `text`: all of the source, as written; a long source is extracted in chunks. `environmentType`: kitchen, lab, events, gym or generic. `deadline`: when everything must be finished, in the user's words or ISO. `hints`: equipment and people limits in the user's words, e.g. 'one oven, two burners, one cook'.",
+};
+
 // ---------------------------------------------------------------------
 // MCP tool annotations. Honest hints so hosts can auto-approve the
 // read-only tools and confirm the ones that write.
@@ -562,16 +699,21 @@ const Program = z.looseObject({
 
 // Loose program for read-only analysis tools: accept anything object-
 // shaped so the validator (not zod) produces the actionable errors.
-const AnyProgram = z.looseObject({}).describe("Rhylthyme program JSON (any shape — validation errors come back in the result, not as a schema rejection).");
+const AnyProgram = z.looseObject({}).describe("Program JSON; shape under validate_program.");
+// What the strict zod schema used to fill in before a program was published
+// or saved.
+function withProgramDefaults(program) {
+  if (!program || typeof program !== "object" || program.schemaVersion) return program;
+  return Object.assign({ schemaVersion: "0.1.0" }, program);
+}
+// The one place the shape is spelled out in tools/list.
+const ShapedProgram = z.looseObject({}).describe(PROGRAM_SHAPE);
 
 // Output schemas (kept permissive; the SDK validates structuredContent
 // against these on every call).
-const Finding = z.looseObject({
-  code: z.string(),
-  message: z.string(),
-  where: z.string().nullable(),
-  fix: z.string().nullable(),
-});
+// A finding is {code, message, where, fix}. Declared loose: spelling the
+// four fields out cost ~250 characters of tools/list per array, five times.
+const Finding = z.looseObject({});
 const ValidationOutput = {
   valid: z.boolean(),
   errors: z.array(Finding),
@@ -590,11 +732,7 @@ const AnalysisOutput = {
   // One entry per critical-path edge saying what gates it: an in-flight
   // cap (schema 0.3.0 `replicates.maxInFlight`), a saturated
   // maxConcurrent task, an explicit offset/buffer, or the dependency.
-  bindingConstraints: z.array(z.looseObject({
-    from: z.string(),
-    to: z.string(),
-    kind: z.string(),
-  })).optional(),
+  bindingConstraints: z.array(z.looseObject({})).optional(),
   // Conflict items always carry `kind`: "maxConcurrent" | "inFlight".
   resourceConflicts: z.array(z.looseObject({})),
   // Per-replicated-step in-flight windows (empty unless maxInFlight is used).
@@ -607,8 +745,8 @@ const AnalysisOutput = {
   // Per step the analysis also carries `plannedDurationSeconds` and, where
   // there is history, `predicted: {seconds, low, high, basis, n, …}` — both
   // inside the loose `steps` objects above.
-  durationsUsed: z.string().optional()
-    .describe("\"planned\" or \"predicted\": which duration set the makespan, itinerary, critical path and conflicts above were computed from."),
+  // "planned" or "predicted": which durations the figures above came from.
+  durationsUsed: z.string().optional(),
   plannedMakespanSeconds: z.number().optional(),
   plannedMakespan: z.string().optional(),
   predictedMakespanSeconds: z.number().optional(),
@@ -646,8 +784,9 @@ function errorResult(text) {
 }
 function loginRequired(what) {
   return errorResult(
-    `${what} requires the user's Rhylthyme access token. Call **login** (no arguments) to get the sign-in URL, ` +
-    "have the user paste the token back, then retry with `token` set. Public catalog tools (search_public_recipes, " +
+    `${what} requires the user's Rhylthyme account. If this app can connect accounts, ask the user to connect Rhylthyme ` +
+    "(they sign in with Google, Apple or email and approve access; no token is needed afterwards). Otherwise call **login** " +
+    "(no arguments) to get the sign-in URL, have the user paste the token back, then retry with `token` set. Public catalog tools (search_public_recipes, " +
     "load_public_recipe, validate_program, analyze_schedule, visualize_schedule) do not need a token."
   );
 }
@@ -1261,9 +1400,8 @@ function registerValidateProgram(server, vertical) {
     "validate_program",
     {
       title: "Validate a program",
-      description:
-        "Check a Rhylthyme program for structural and scheduling errors BEFORE visualizing or saving it: missing/duplicate ids, dangling afterStep references, dependency cycles, steps that overlap within a track, tasks with no resourceConstraint, unparseable durations, invalid choice references, and schema 0.3.0-alpha `instances`/`replicates` misuse (E_INSTANCES_ON_SINGLE, E_EACH_WITH_REPLICATES, E_EACH_COUNT_MISMATCH, E_INFLIGHT_GT_COUNT, E_INFLIGHT_NO_CHAIN). Every finding has a `code`, a `message` and a `fix` hint — apply the fixes and re-run until `valid` is true. Warnings (e.g. tracks that finish far apart, W_UNBARRIERED_CHAIN) are advisory; `info` notes (I_IMPLICIT_BARRIER: a replicated step referenced without `instances`) suggest making a barrier explicit. Pure computation: no network, no side effects, safe to call repeatedly.",
-      inputSchema: { program: AnyProgram },
+      description: DESC.validate_program[vertical],
+      inputSchema: { program: ShapedProgram },
       outputSchema: ValidationOutput,
       annotations: Object.assign({ title: "Validate a program" }, ANN.pure),
     },
@@ -1279,36 +1417,27 @@ function registerAnalyzeSchedule(server, vertical) {
     "analyze_schedule",
     {
       title: "Analyze schedule timing",
-      description:
-        "Resolve a Rhylthyme program onto the clock and report what the live runner will do: every step's start/end (seconds from start and, if you pass `finishAt` or `startAt`, ISO wall-clock times), total makespan, the critical path, `bindingConstraints` (what gates each critical-path edge — an in-flight cap, a saturated task, an offset, or a plain dependency), resource conflicts tagged `kind: \"maxConcurrent\"` (more steps claim a task than its maxConcurrent allows) or `kind: \"inFlight\"` (more instances of a replicated step are between it and its barrier than `replicates.maxInFlight` allows), `inFlight` windows per replicated step, peak concurrency vs. declared actors, and per-track slack (instances get their own sub-track rows, tagged with `parentTrackId` / `instanceOf`). Use it to answer 'when do I start the potatoes so everything is ready at 6pm?' (pass finishAt), to find why a schedule is longer than expected (critical path and binding constraints — e.g. the cooling rack, not the oven), or to check equipment contention before visualizing. Pure computation; also returns validation findings so you can fix problems in the same turn.\n\n**Analysing against real history.** Pass `history` (run records from **load_run**, or from `rhylthyme runs` on disk) and every step with enough measurements gains `predicted: {seconds, low, high, basis, n}` beside its planned duration, plus top-level `predictedMakespan` and `predictedCriticalPath`. `basis` is `\"identical\"` (runs of the same program version, environment and variance factors — their median), `\"model\"` (a per-step regression on the factors that correlate) or `\"none\"` (no usable measurement). Simpler still: give `program_id` (a UUID from **list_my_programs**) plus `token` and the tool loads the caller's own recorded runs of that program for you. `useDurations: \"predicted\"` then recomputes the makespan, itinerary, critical path and conflicts from the predicted durations instead of the authored ones; the default stays `\"planned\"` so a program is analysed on what it says.",
+      description: DESC.analyze_schedule[vertical],
       inputSchema: {
         program: AnyProgram,
-        finishAt: z.string().optional().describe("ISO 8601 datetime the whole program should END at (e.g. '2026-11-26T18:00:00-05:00'). Start times are computed backwards from it."),
-        startAt: z.string().optional().describe("ISO 8601 datetime the program STARTS at. Ignored when finishAt is given."),
+        finishAt: z.string().optional().describe("ISO 8601 datetime everything must END at, e.g. '2026-11-26T18:00:00-05:00'. Start times are worked backwards from it."),
+        startAt: z.string().optional().describe("ISO 8601 start datetime. Ignored with finishAt."),
         history: z.array(z.looseObject({})).optional()
-          .describe("Recorded runs of this program (`runs` schema 0.1.0-alpha documents, as load_run returns them in `run`). Supplying them adds `predicted` per step and `predictedMakespan` / `predictedCriticalPath` to the result. Only runs that measure the executor count — completed, wall clock, speed 1 — and within them only steps a person ended, unpaused."),
+          .describe("Recorded runs of this program (the `run` objects from load_run). Adds predicted durations."),
         program_id: z.string().optional()
-          .describe("Library program UUID: with `token` and no `history`, the caller's own recorded runs of this program are loaded and used as the history."),
+          .describe("Saved program UUID: loads the user's own recorded runs as the history."),
         token: z.string().optional()
-          .describe("Your Rhylthyme access token from the login tool. Only needed with `program_id`, to load your recorded runs; analysis itself needs no login."),
-        predictionContext: z.looseObject({
-          environmentId: z.string().optional().describe("Predict for this environment; runs recorded elsewhere are not \"identical\"."),
-          userTags: z.looseObject({}).optional().describe("The variance factors of the run being planned, e.g. {\"turkeyKg\": 7, \"oven\": \"gas\"} — the values the model is evaluated at."),
-          userId: z.string().optional().describe("Prefer this person's own runs for the identical-context lookup before falling back to everyone's."),
-          programVersion: z.string().optional().describe("`sha256:<hex>` of the exact program JSON being planned; defaults to the hash of `program`."),
-          minIdentical: z.number().int().optional().describe("Identical-context runs needed before their median is used (default 3)."),
-          minModel: z.number().int().optional().describe("Measurements needed before a regression is fitted rather than a median (default 8)."),
-          corrThreshold: z.number().optional().describe("Minimum |Pearson r| for a factor to enter the model (default 0.3)."),
-          verdicts: z.looseObject({}).optional().describe("Inferentiality verdicts per step (`rhylthyme runs report`); a step marked executor-controlled gets no prediction."),
-        }).optional()
-          .describe("How to condition the prediction. Everything is optional; with none of it the lookup uses the program's own hash and the factors each run recorded."),
+          .describe(TOKEN_DESC),
+        predictionContext: z.looseObject({}).optional()
+          .describe("Optional conditioning for the prediction: environmentId, userTags (variance factors, e.g. {turkeyKg: 7}), userId, programVersion, minIdentical, minModel, corrThreshold, verdicts. See rhylthyme://guide/tools."),
         useDurations: z.enum(["planned", "predicted"]).default("planned")
-          .describe("Which duration set the makespan, wall-clock itinerary, critical path, conflicts and slack are computed from. \"planned\" (default) analyses the program as authored; \"predicted\" analyses it as history says it will actually run. Needs `history` (or `program_id` + `token`) to differ."),
+          .describe("planned (default): analyse the program as authored. predicted: as the history says it will run."),
       },
       outputSchema: AnalysisOutput,
       annotations: Object.assign({ title: "Analyze schedule timing" }, ANN.pure),
     },
     async ({ program, finishAt, startAt, history, program_id: progId, token, predictionContext, useDurations }) => {
+      token = OAuth.resolveToken(token);
       const v = Schedule.validateProgram(program);
       if (!v.stats) {
         return { content: [{ type: "text", text: Schedule.formatValidation(v) }], isError: true };
@@ -1349,13 +1478,14 @@ function registerVisualizeSchedule(server, vertical) {
       title: "Publish a live timeline",
       description: DESC.visualize_schedule[vertical],
       inputSchema: {
-        program: Program,
-        allowInvalid: z.boolean().default(false).describe("Publish even if validation reports errors. Only use when the user explicitly wants an imperfect draft shared; the live page may show wrong timings."),
+        program: AnyProgram,
+        allowInvalid: z.boolean().default(false).describe("Publish despite validation errors. Only when the user explicitly wants an imperfect draft shared."),
       },
       outputSchema: ShareOutput,
       annotations: Object.assign({ title: "Publish a live timeline" }, ANN.publish),
     },
     async ({ program, allowInvalid }) => {
+      program = withProgramDefaults(program);
       const v = Schedule.validateProgram(program);
       if (!v.valid && !allowInvalid) {
         return errorResult(
@@ -1457,28 +1587,16 @@ function registerImportText(server, vertical) {
       title: "Import pasted text",
       description: DESC.import_text[vertical],
       inputSchema: {
-        text: z.string().describe(
-          "The source text itself: the recipe, protocol, run sheet or plan, as the user wrote or pasted it. " +
-          "Paste all of it — turn 1 reads it back and a long source is extracted in chunks.",
-        ),
-        environmentType: z.string().describe(
-          "Where the work happens: kitchen, lab, events, gym, or generic. Fills the scenario prompt's " +
-          "environment slot and becomes the program's environmentType.",
-        ),
-        deadline: z.string().optional().describe(
-          "When everything must be finished, if the user said: \"18:00\", \"dinner at six\", an ISO datetime.",
-        ),
-        hints: z.string().optional().describe(
-          "Equipment and people limits in the user's own words, e.g. 'one oven, two burners, one cook'. " +
-          "Used as the scenario prompt's environment and as the resource constraints to expect.",
-        ),
-        token: z.string().optional().describe(
-          "User's Rhylthyme access token from the **login** tool. Required: this import runs model calls on the server.",
-        ),
+        text: z.string().describe("The source text, all of it, as the user wrote or pasted it."),
+        environmentType: z.string().describe("kitchen, lab, events, gym or generic."),
+        deadline: z.string().optional().describe("When everything must be finished, if the user said: '18:00', 'dinner at six', an ISO datetime."),
+        hints: z.string().optional().describe("Equipment and people limits in the user's words, e.g. 'one oven, two burners, one cook'."),
+        token: z.string().optional().describe(TOKEN_DESC),
       },
       annotations: Object.assign({ title: "Import pasted text" }, ANN.read),
     },
     async ({ text, environmentType, deadline, hints, token }) => {
+      token = OAuth.resolveToken(token);
       if (!token) return loginRequired("import_text");
       const body = (text || "").trim();
       if (!body) return errorResult("import_text needs `text` — the source to extract from.");
@@ -1540,8 +1658,8 @@ function registerImportFromSource(server, vertical) {
           "llm-text",
         ]),
         action: z.enum(["search", "import", "random"]),
-        query: z.string().optional().describe("Search keywords (search), or the URL / id to import (import)."),
-        text: z.string().optional().describe("Raw source text (Opentrons .py) when the user pasted it instead of a URL."),
+        query: z.string().optional().describe("Keywords (search), or the URL or id (import)."),
+        text: z.string().optional().describe("Pasted source (an Opentrons .py) instead of a URL."),
         // A structural importer reads structure, not meaning, so it
         // yields one track chained head-to-tail. `enrich` sends that step
         // list through turn 4 of the plan_schedule prompt server-side --
@@ -1549,26 +1667,17 @@ function registerImportFromSource(server, vertical) {
         // a multi-track program. Costs a model call, so it is opt-in and
         // rate-limited; a failed enrichment still returns the import.
         enrich: z.boolean().optional()
-          .describe(
-            "Split the import into parallel tracks with cross-track triggers (action='import' only). " +
-            "Runs the relationship turn of the plan_schedule prompt server-side against the imported " +
-            "step list: steps, durations and resources are kept as imported, tracks and start triggers " +
-            "are inferred, and any step the model adds is marked `metadata.inferred`. Costs a model call " +
-            "and is capped per day; if it fails you still get the un-enriched program.",
-          ),
+          .describe("With action='import': split the import into parallel tracks with cross-track triggers. One model call, capped per day."),
         // `token` is the user's Rhylthyme access token (NOT the Benchling
         // token). rhylthyme.com gates import/random behind sign-in, and
         // Benchling needs it to look up the user's stored credentials.
         token: z.string().optional()
-          .describe(
-            "User's Rhylthyme access token from the **login** tool. " +
-            "Required for action='import' and action='random' on every source, and for anything with source='benchling'. " +
-            "Not needed for action='search' on public sources.",
-          ),
+          .describe(TOKEN_DESC),
       },
       annotations: Object.assign({ title: "Import from an external source" }, ANN.read),
     },
     async ({ source, action, query, text, token, enrich }) => {
+      token = OAuth.resolveToken(token);
       const authHeader = token
         ? { Authorization: "Bearer " + token, "Content-Type": "application/json" }
         : { "Content-Type": "application/json" };
@@ -1738,16 +1847,16 @@ function registerLogin(server, vertical) {
       title: "Connect Rhylthyme account",
       description: DESC.login[vertical],
       inputSchema: {
-        token: z.string().optional().describe(
-          "Paste the access token shown on the login page after you sign in. Leave empty on the first call to get the login URL.",
-        ),
+        token: z.string().optional().describe("The token from the login page. Leave empty on the first call to get the sign-in URL."),
       },
       annotations: Object.assign({ title: "Connect Rhylthyme account" }, ANN.read),
     },
     async ({ token }) => {
+      token = OAuth.resolveToken(token);
       if (!token) {
         return textResult(
-          `To connect your Rhylthyme account, open this URL in your browser:\n\n**${API_BASE}/mcp/auth**\n\nSign in with Google, Apple, or email. Then copy the token shown on the page and call this tool again with it.`,
+          `If this app offers a "Connect" button for Rhylthyme, use that instead: you sign in once and no token is needed.\n\n` +
+          `Otherwise, to connect your Rhylthyme account, open this URL in your browser:\n\n**${API_BASE}/mcp/auth**\n\nSign in with Google, Apple, or email. Then copy the token shown on the page and call this tool again with it.`,
         );
       }
       try {
@@ -1776,11 +1885,13 @@ function registerListMyPrograms(server, vertical) {
     {
       title: "List my saved programs",
       description: DESC.list_my_programs[vertical],
-      inputSchema: { token: z.string().describe("Your Rhylthyme access token from the login tool") },
+      inputSchema: { token: z.string().optional().describe(TOKEN_DESC) },
       annotations: Object.assign({ title: "List my saved programs" }, ANN.read),
     },
     async ({ token }) => {
+      token = OAuth.resolveToken(token);
       try {
+        if (!token) return loginRequired("list_my_programs");
         const resp = await fetch(`${API_BASE}/api/mcp/programs`, fetchOpts({
           method: "POST",
           headers: { "Content-Type": "application/json", Authorization: "Bearer " + token },
@@ -1811,13 +1922,15 @@ function registerLoadProgram(server, vertical) {
       title: "Open a saved program",
       description: DESC.load_program[vertical],
       inputSchema: {
-        token: z.string().describe("Your Rhylthyme access token"),
-        program_id: z.string().describe("The program UUID from list_my_programs"),
+        token: z.string().optional().describe(TOKEN_DESC),
+        program_id: z.string().describe("Program UUID from list_my_programs."),
       },
       annotations: Object.assign({ title: "Open a saved program" }, ANN.read),
     },
     async ({ token, program_id: progId }) => {
+      token = OAuth.resolveToken(token);
       try {
+        if (!token) return loginRequired("load_program");
         const resp = await fetch(`${API_BASE}/api/mcp/programs/${encodeURIComponent(progId)}`, fetchOpts({
           headers: { Authorization: "Bearer " + token },
         }));
@@ -1885,12 +1998,13 @@ function registerListRuns(server, vertical) {
       title: "List recorded runs",
       description: DESC.list_runs[vertical],
       inputSchema: {
-        program_id: z.string().describe("The program UUID from list_my_programs or the program's URL"),
-        token: z.string().optional().describe("Your Rhylthyme access token from the login tool"),
+        program_id: z.string().describe("Program UUID from list_my_programs."),
+        token: z.string().optional().describe(TOKEN_DESC),
       },
       annotations: Object.assign({ title: "List recorded runs" }, ANN.read),
     },
     async ({ program_id: progId, token }) => {
+      token = OAuth.resolveToken(token);
       if (!token) return loginRequired("list_runs");
       try {
         const resp = await fetch(
@@ -1939,12 +2053,13 @@ function registerLoadRun(server, vertical) {
       title: "Open a recorded run",
       description: DESC.load_run[vertical],
       inputSchema: {
-        run_id: z.string().describe("The run UUID from list_runs"),
-        token: z.string().optional().describe("Your Rhylthyme access token from the login tool"),
+        run_id: z.string().describe("Run UUID from list_runs."),
+        token: z.string().optional().describe(TOKEN_DESC),
       },
       annotations: Object.assign({ title: "Open a recorded run" }, ANN.read),
     },
     async ({ run_id: runId, token }) => {
+      token = OAuth.resolveToken(token);
       if (!token) return loginRequired("load_run");
       try {
         const resp = await fetch(
@@ -2112,22 +2227,23 @@ function registerCalibrateProgram(server, vertical) {
       description: DESC.calibrate_program[vertical],
       inputSchema: {
         program: AnyProgram.optional()
-          .describe("The program JSON to calibrate. Omit it and `program_id`'s saved JSON is used, so the usual call is just an id."),
+          .describe("Program JSON to calibrate; omit to use program_id's saved JSON."),
         program_id: z.string().optional()
-          .describe("Library program UUID (from list_my_programs). Names the program whose recorded runs are the evidence, and — with no `program` — the JSON to calibrate."),
+          .describe("Saved program UUID whose recorded runs are the evidence."),
         history: z.array(z.looseObject({})).optional()
-          .describe("Run records to use instead of the ones stored against `program_id` (`runs` schema 0.1.0-alpha)."),
+          .describe("Run records to use instead of the stored ones."),
         k: z.number().int().min(1).optional()
-          .describe("Measurements a step needs before it gets a proposal (default 5). A step under it is reported as skipped with its statistics, not silently dropped."),
+          .describe("Measurements a step needs for a proposal (default 5)."),
         since: z.string().optional()
-          .describe("Only runs started on or after this date (YYYY-MM-DD or ISO), e.g. to calibrate on the last month's cooks only."),
+          .describe("Only runs started on or after this date (YYYY-MM-DD or ISO)."),
         accept: z.union([z.literal("all"), z.array(z.string())]).optional()
-          .describe("Step ids to accept, or \"all\". The result then also carries the calibrated program with `calibratedFrom` beside each written duration. NOTHING IS SAVED either way — pass that program to save_program if the user wants it kept."),
-        token: z.string().optional().describe("Your Rhylthyme access token from the login tool"),
+          .describe("Step ids to accept, or \"all\": also returns the calibrated program. Nothing is saved either way."),
+        token: z.string().optional().describe(TOKEN_DESC),
       },
       annotations: Object.assign({ title: "Propose durations from recorded runs" }, ANN.read),
     },
     async ({ program, program_id: progId, history, k, since, accept, token }) => {
+      token = OAuth.resolveToken(token);
       if (!token) return loginRequired("calibrate_program");
       if (!progId && !(program && typeof program === "object")) {
         return errorResult("Pass `program_id` (a UUID from list_my_programs) or the `program` JSON to calibrate.");
@@ -2221,11 +2337,11 @@ function registerListPublicRuns(server, vertical) {
       description: DESC.list_public_runs[vertical],
       inputSchema: {
         program_hash: z.string().optional()
-          .describe("Canonical program hash, \"sha256:\" plus 64 hex characters — the programVersion field of a run record, or programs.program_hash."),
+          .describe("Program hash, 'sha256:' + 64 hex (a run record's programVersion)."),
         program: AnyProgram.optional()
-          .describe("The program JSON to look up instead of a hash; it is hashed here with the same canonical hash the runtimes record."),
+          .describe("Program JSON to look up instead; hashed here."),
         limit: z.number().int().min(1).max(200).optional()
-          .describe("How many contributed runs to return, newest first (default 50)."),
+          .describe("Runs to return, newest first (default 50)."),
       },
       annotations: Object.assign({ title: "List contributed runs" }, ANN.read),
     },
@@ -2300,7 +2416,7 @@ function registerSearchPublicRecipes(server, vertical) {
   const envValues = ["kitchen", "laboratory", "gym", "event", "events"];
   const envSchema = envFilter
     ? z.enum(envValues).default(envFilter).describe(`Defaults to "${envFilter}" on this endpoint.`)
-    : z.enum(envValues).default("kitchen").describe("Which catalog to search. Defaults to \"kitchen\"; use \"laboratory\", \"event\" or \"gym\" for the other collections.");
+    : z.enum(envValues).default("kitchen").describe("Which catalog: kitchen (default), laboratory, event or gym.");
 
   const nextHint = (() => {
     switch (vertical) {
@@ -2318,7 +2434,7 @@ function registerSearchPublicRecipes(server, vertical) {
       title: "Search the public catalog",
       description: DESC.search_public_recipes[vertical],
       inputSchema: {
-        query: z.string().describe("Keyword to search (matches name and description). Empty returns the most recent entries.").default(""),
+        query: z.string().describe("Keyword; matches name and description. Empty returns the newest entries.").default(""),
         environment: envSchema,
         limit: z.number().int().min(1).max(50).default(20),
       },
@@ -2402,12 +2518,15 @@ function registerSaveProgram(server, vertical) {
       title: "Save to my account",
       description: DESC.save_program[vertical],
       inputSchema: {
-        token: z.string().describe("Your Rhylthyme access token"),
-        program: Program,
+        token: z.string().optional().describe(TOKEN_DESC),
+        program: AnyProgram,
       },
       annotations: Object.assign({ title: "Save to my account" }, ANN.upsert),
     },
     async ({ token, program }) => {
+      token = OAuth.resolveToken(token);
+      if (!token) return loginRequired("save_program");
+      program = withProgramDefaults(program);
       const v = Schedule.validateProgram(program);
       if (!v.valid) {
         return errorResult("Not saved — fix these validation errors first:\n\n" + Schedule.formatValidation(v));
@@ -2447,7 +2566,7 @@ function registerOneShotTool(server, vertical) {
     oneShot.name,
     {
       title: oneShot.title,
-      description: oneShot.description,
+      description: DESC[oneShot.name][vertical],
       inputSchema: { query: z.string().describe(oneShot.argLabel) },
       annotations: Object.assign({ title: oneShot.title }, ANN.read),
     },
@@ -2478,7 +2597,7 @@ function registerRandomTool(server, vertical) {
     random.name,
     {
       title: random.title,
-      description: random.description,
+      description: DESC[random.name][vertical],
       inputSchema: {},
       annotations: Object.assign({ title: random.title }, ANN.read, { idempotentHint: false }),
     },
@@ -2503,12 +2622,11 @@ function registerPreviewTimeline(server, vertical) {
     "preview_timeline",
     {
       title: "Preview timeline image",
-      description:
-        "Render a Rhylthyme program as a static Gantt-chart image so the user can SEE what the live timeline looks like, without committing to opening the live URL. Use this when the user asks for a 'preview' or 'picture' of the timeline, or when you have just built a freehand program and want to give the user a visual before they commit. The tool returns ONLY an image plus a one-line caption — no recipe prose, no ingredient list, no copyright concerns. Just the structural visualization of which step runs when on which track.\n\nPair with **visualize_schedule** when the user wants the full shareable interactive URL too. This tool is for the visual-only quick preview case.\n\n**Planned versus actual.** Pass `run` — a recorded run of the same program, as **load_run** returns it in `run` — and the picture becomes a comparison: each step's real bar over a thin ghost bar at its planned position, outlined green where it finished early and amber where it ran late. That is the fastest way to show a person where a plan drifted.\n\n**Rendering option for HTML-artifact-capable clients (Claude.ai etc.):** Claude.ai's artifact sandbox blocks external scripts from non-cdnjs sources, so a `<script src=\"https://kitchen.rhylthyme.com/...\">` tag will fail. To render the timeline yourself with the official Rhylthyme look, call **get_renderer_source** first to fetch the renderer's full source as a string, then embed that source verbatim inside a `<script>…</script>` block in your HTML artifact, followed by your program JSON and a call to `Rhylthyme.renderTimeline(document.getElementById('t'), program)`. The renderer is open-source (Apache-2.0), zero-dependency, ~9KB.",
+      description: DESC.preview_timeline[vertical],
       inputSchema: {
-        program: AnyProgram.describe("Rhylthyme program JSON (same shape visualize_schedule accepts)."),
+        program: AnyProgram,
         run: z.looseObject({}).optional()
-          .describe("Optional recorded run of the SAME program (`runs` schema 0.1.0-alpha — the `run` object from load_run). Draws planned-vs-actual: the actual bars over ghost bars at the planned positions, coloured by the sign of each step's end deviation."),
+          .describe("A recorded run of the same program (the `run` object from load_run): draws planned versus actual."),
       },
       annotations: Object.assign({ title: "Preview timeline image" }, ANN.publish),
     },
@@ -2582,8 +2700,7 @@ function registerGetRendererSource(server, vertical) {
     "get_renderer_source",
     {
       title: "Get timeline renderer source",
-      description:
-        "Returns the source code of the open-source Rhylthyme timeline renderer (Apache-2.0, ~9KB, zero dependencies). Use this when you're building an HTML artifact and the artifact sandbox blocks external scripts (e.g., Claude.ai's CSP only allows cdnjs.cloudflare.com). The returned text is plain JavaScript with a UMD wrapper — paste it verbatim inside a `<script>…</script>` block in your artifact, then call `Rhylthyme.renderTimeline(container, program)` where `program` is the Rhylthyme program JSON. After this call, the global `Rhylthyme` object exposes: `renderTimeline(container, program)`, `renderTimelineSvg(program)`, `computeStepTimings(program)`, `parseSeconds(value)` and `stepDurationSeconds(step)`.",
+      description: DESC.get_renderer_source[vertical],
       inputSchema: {},
       annotations: Object.assign({ title: "Get timeline renderer source" }, ANN.read),
     },
@@ -2840,6 +2957,18 @@ function registerResources(server, vertical) {
     },
     async (uri) => ({
       contents: [{ uri: uri.href, mimeType: "text/markdown", text: AUTHORING_GUIDE }],
+    }),
+  );
+  server.registerResource(
+    "tool-guide",
+    "rhylthyme://guide/tools",
+    {
+      title: "Rhylthyme tool details",
+      description: "The long form of every tool description: when to use it, what it returns, and the arguments the tool list only names (analyze_schedule's predictionContext, calibrate_program's options).",
+      mimeType: "text/markdown",
+    },
+    async (uri) => ({
+      contents: [{ uri: uri.href, mimeType: "text/markdown", text: toolGuide(vertical) }],
     }),
   );
   server.registerResource(
@@ -3116,6 +3245,8 @@ module.exports = async function handler(req, res) {
   if (reqUrl.includes("/og/timeline.png")) {
     return handleOgTimeline(req, res);
   }
+  // OAuth discovery documents (see oauth.js).
+  if (reqUrl.startsWith("/.well-known/") && await OAuth.handleWellKnown(req, res)) return;
 
   const hostHeader = (req.headers["x-forwarded-host"] || req.headers.host || "").toString();
   const vertical = detectVertical(reqUrl, hostHeader);
@@ -3175,8 +3306,24 @@ module.exports = async function handler(req, res) {
     ? Analytics.begin(body, { vertical, headers: req.headers })
     : null;
 
+  // Step-up authorization: an account tool called with no credential gets a
+  // 401 challenge, which is what makes an OAuth-capable host offer Connect.
+  let denied = req.method === "POST" ? OAuth.gate(req, body) : null;
+  if (denied && !(await OAuth.authorizationServerReady())) denied = null;
+  if (denied) {
+    res.statusCode = denied.status;
+    for (const [k, v] of Object.entries(denied.headers)) res.setHeader(k, v);
+    res.end(denied.body);
+    if (tracker) {
+      tracker.capture(Buffer.from(denied.body));
+      const done = tracker.finish(denied.status);
+      if (!Analytics.waitUntil(done)) await done;
+    }
+    return;
+  }
+
   try {
-    let webResponse = await webHandler(webRequest);
+    let webResponse = await OAuth.withRequest(req, () => webHandler(webRequest));
     if (lenientAccept && !clientTakesSse) webResponse = await sseToJson(webResponse);
     res.statusCode = webResponse.status;
     for (const [key, value] of webResponse.headers.entries()) {
@@ -3226,3 +3373,4 @@ module.exports._resvgOptions = resvgOptions;
 module.exports.inlineCdnScripts = inlineCdnScripts;
 module.exports._prompts = Prompts;
 module.exports._analytics = Analytics;
+module.exports._oauth = OAuth;
