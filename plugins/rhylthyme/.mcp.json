@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "rhylthyme": {
+      "type": "http",
+      "url": "https://mcp.rhylthyme.com/mcp"
+    }
+  }
+}

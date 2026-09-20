@@ -103,6 +103,14 @@ claude mcp add --transport http rhylthyme-kitchen https://mcp.rhylthyme.com/kitc
 connector* → paste one of the URLs above. Public tools work immediately;
 run `login` only to save to your own account.
 
+**Claude Code plugin** (the hosted server plus a skill that teaches Claude to
+author, validate and analyze schedules):
+
+```
+/plugin marketplace add rhylthyme/rhylthyme-mcp
+/plugin install rhylthyme@rhylthyme
+```
+
 **ChatGPT**: Settings → Apps & Connectors → Advanced settings → turn on
 *Developer mode*, then *Create* a connector with one of the URLs above as the
 MCP server URL. Without a connector ChatGPT cannot call these tools and falls
@@ -246,6 +254,7 @@ those still depend on the hosted service. The PNG preview route
 - `static/schema/`, `static/examples/`: the resources
 - `src/index.js`: standalone HTTP runner
 - `mcp-api/server.json`: MCP registry manifest
+- `.claude-plugin/marketplace.json`, `plugins/rhylthyme/`: the Claude plugin marketplace and plugin (`claude plugin validate .`); the skill in it is a checked copy of `rhylthyme-cli-runner/skills/rhylthyme`
 - `python/`: the `rhylthyme-mcp` PyPI package, a stdio bridge to the hosted server (`cd python && PYTHONPATH=src pytest tests`)
 
 ## Known limitations
