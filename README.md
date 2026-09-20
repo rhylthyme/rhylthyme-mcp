@@ -103,6 +103,11 @@ claude mcp add --transport http rhylthyme-kitchen https://mcp.rhylthyme.com/kitc
 connector* → paste one of the URLs above. Public tools work immediately;
 run `login` only to save to your own account.
 
+**ChatGPT**: Settings → Apps & Connectors → Advanced settings → turn on
+*Developer mode*, then *Create* a connector with one of the URLs above as the
+MCP server URL. Without a connector ChatGPT cannot call these tools and falls
+back to browsing the website.
+
 **Cursor** (`.cursor/mcp.json`):
 
 ```json
@@ -122,6 +127,19 @@ resp = client.beta.messages.create(
     messages=[{"role": "user", "content": "Plan Thanksgiving for 8 with one oven, dinner at 6pm."}],
 )
 ```
+
+**No MCP client at all** (an agent with a shell, a script): the server is
+stateless, so one POST works with no handshake and no account.
+
+```bash
+curl -s https://mcp.rhylthyme.com/mcp \
+  -H 'Content-Type: application/json' -H 'Accept: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call",
+       "params":{"name":"validate_program","arguments":{"program":{"programId":"x","name":"x","tracks":[]}}}}'
+```
+
+`visualize_schedule` called the same way returns the live-timeline URL in
+`result.structuredContent.url`. Or use the CLI in the quickstart above.
 
 ## Tools
 
