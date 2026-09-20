@@ -13,6 +13,44 @@ This repository is the source of the server that runs at
 rhylthyme-server application, copied here with the static assets it
 needs so it can be read, tested and self-hosted.
 
+## This repository and rhylthyme-cli-runner
+
+Two repositories do related things and are easy to confuse. This one is the
+**server an AI assistant talks to**. [rhylthyme-cli-runner](https://github.com/rhylthyme/rhylthyme-cli-runner)
+is the **command a person types**.
+
+| | [rhylthyme-mcp](https://github.com/rhylthyme/rhylthyme-mcp) | [rhylthyme-cli-runner](https://github.com/rhylthyme/rhylthyme-cli-runner) |
+|---|---|---|
+| What it is | The MCP **server**: the tools an AI assistant calls | A command-line **program**: the `rhylthyme` command |
+| Who uses it | Claude, ChatGPT, Cursor or any MCP client, on a person's behalf | A person at a terminal, a script, or CI |
+| Where it runs | Hosted at `mcp.rhylthyme.com`; nothing to install | On your machine: `pip install rhylthyme-cli-runner` |
+| Language | JavaScript (Node 20+) | Python 3.12+ |
+| Input | A program the assistant builds in conversation | A program file on disk (JSON or YAML) |
+| Validate a program | `validate_program` | `rhylthyme validate` (works offline) |
+| Timing, conflicts, deadlines | `analyze_schedule` | `rhylthyme analyze` (asks the server) |
+| Publish a live timeline | `visualize_schedule` | `rhylthyme publish` (asks the server) |
+| Run a schedule with timers | no: it hands back a link to the web timeline | `rhylthyme run`, an interactive terminal runner |
+| Recorded runs, calibration | reads runs saved to an account | records runs locally; `rhylthyme runs`, `rhylthyme calibrate` |
+| Catalog search, imports, account library | yes | no |
+| Also in the repository | the `rhylthyme-mcp` PyPI package (a stdio bridge to the hosted server), the Claude plugin marketplace | the Claude skill's source, the prompt-evaluation harness and its results, `rhylthyme mcp-test` |
+
+How they fit together: the command-line tool is one of this server's clients.
+`rhylthyme analyze`, `publish`, `generate` and `mcp-test` are MCP calls to
+`mcp.rhylthyme.com`; `rhylthyme validate`, `run`, `runs` and `calibrate` never
+touch the network. Each has its own validator for the same program schema
+(JavaScript here, Python there), so a program is checked again when it is
+published.
+
+Use this repository to connect an assistant, to read or self-host the server,
+or to change a tool. Use rhylthyme-cli-runner if you have a program file and a
+terminal, want timers in the terminal, or keep run records.
+
+Two names to keep apart: `rhylthyme-mcp` on PyPI is this server's stdio bridge
+(command `rhylthyme-mcp`, source in [`python/`](python)); `rhylthyme-cli-runner`
+on PyPI is the command-line tool (command `rhylthyme`). The program format
+itself is defined in [rhylthyme-spec](https://github.com/rhylthyme/rhylthyme-spec),
+with examples in [rhylthyme-examples](https://github.com/rhylthyme/rhylthyme-examples).
+
 ## Endpoints
 
 | URL | Server name | Adds |
@@ -24,8 +62,9 @@ needs so it can be read, tested and self-hosted.
 | `https://mcp.rhylthyme.com/gym/mcp` | `rhylthyme-gym-mcp` | `start_workout`, `surprise_workout` |
 
 Transport: Streamable HTTP, stateless. No sign-in is needed for the public
-catalog or the pure tools; account tools take a per-user token from the
-`login` tool. Server `instructions` describing the workflow are sent at
+catalog or the pure tools; account tools use the person's Rhylthyme account
+through OAuth 2.1, or a pasted token from the `login` tool in clients without
+OAuth. Server `instructions` describing the workflow are sent at
 `initialize`.
 
 ## Quickstart: timelines from the command line
@@ -265,5 +304,6 @@ those still depend on the hosted service. The PNG preview route
 
 ## License
 
-MIT (this repository). The renderer in `static/js/timeline-render.js`
-carries its own Apache-2.0 header.
+MIT (this repository, including the `python/` bridge and the plugin
+manifests). The renderer in `static/js/timeline-render.js` and the skill in
+`plugins/rhylthyme/skills/` are Apache-2.0 and say so in their headers.

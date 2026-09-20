@@ -9,7 +9,7 @@
   },
   "homepage": "https://docs.rhylthyme.com/web-app/mcp/",
   "repository": "https://github.com/rhylthyme/rhylthyme-mcp",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "keywords": [
     "scheduling",
     "timeline",

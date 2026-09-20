@@ -69,4 +69,4 @@ HTML file in your browser. 0.1.1 replaces it with the bridge: the same
 the hosted server, and links to live timelines instead of local files.
 
 Docs: https://docs.rhylthyme.com/web-app/mcp/ · Source:
-https://github.com/rhylthyme/rhylthyme-mcp (`python/`) · License: Apache-2.0
+https://github.com/rhylthyme/rhylthyme-mcp (`python/`) · License: MIT
