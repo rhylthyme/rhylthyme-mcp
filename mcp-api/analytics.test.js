@@ -143,6 +143,36 @@ test("severity separates broken from expected", () => {
   assert.equal(sev({ error_code: "rpc_-32602", method: "prompts/get" }), "warn");
   assert.equal(sev({ error_code: "rpc_-32601", method: "server/discover" }), "warn");
   assert.equal(sev({ error_code: "http_406" }), "warn");
+  // The account refusal as it reads since OAuth.
+  assert.equal(sev({ error_code: "tool_error", error_message: "save_program requires the user's Rhylthyme account. If this app can connect accounts" }), "warn");
+});
+
+test("a caller's mistake is a warning: tagged input errors and empty-argument probes", () => {
+  const sev = (o) => Analytics.severity(Object.assign({ ok: false, method: "tools/call", error_code: "tool_error" }, o));
+  // What paged on 2026-09-21: a scanner called import_from_source with an action and no query.
+  assert.equal(sev({ error_kind: "input", error_message: "action='search' needs `query`", detail: { argKeys: ["action", "source"] } }), "warn");
+  // No arguments at all (a token does not count): a probe, whatever the tool said.
+  assert.equal(sev({ error_message: "Couldn't find a program with that id", detail: { argKeys: [] } }), "warn");
+  // ...unless what it said is that something behind us failed.
+  assert.equal(sev({ error_message: "Text import failed (502)", detail: { argKeys: [] } }), "alert");
+  assert.equal(sev({ error_kind: "input", error_message: "Catalog search timed out", detail: { argKeys: ["query"] } }), "alert");
+  assert.equal(sev({ error_message: "anything", detail: { argKeys: ["token"] } }), "warn");
+  assert.equal(sev({ error_code: "rpc_-32602", detail: { argKeys: [] } }), "warn");
+  // Real arguments and an untagged failure still page.
+  assert.equal(sev({ error_message: "Text import failed (502)", detail: { argKeys: ["text", "environmentType"] } }), "alert");
+  assert.equal(sev({ error_code: "rpc_-32602", detail: { argKeys: ["program"] } }), "alert");
+  assert.equal(sev({ error_code: "http_500", detail: { argKeys: [] } }), "alert", "a 5xx is ours even on a probe");
+});
+
+test("the input tag travels from the tool result to the event and never reaches the table", () => {
+  const ev = { rpc_id: 1, method: "tools/call", tool: "import_from_source", detail: { argKeys: ["action", "source"] } };
+  const body = JSON.stringify({ jsonrpc: "2.0", id: 1, result: { isError: true, content: [{ type: "text", text: "action='search' needs `query`" }], _meta: { [Analytics.ERROR_KIND_META]: "input" } } });
+  Analytics.applyOutcome([ev], body, 200, 15);
+  assert.equal(ev.error_code, "tool_error");
+  assert.equal(ev.error_kind, "input");
+  assert.equal(Analytics.severity(ev), "warn");
+  const row = Analytics.toRow(ev);
+  assert.ok(!("error_kind" in row) && !("error_message" in row) && !("rpc_id" in row));
 });
 
 test("alerts go to the webhook once per signature, skip warnings and mcp-test traffic", async () => {

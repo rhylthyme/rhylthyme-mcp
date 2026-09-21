@@ -696,8 +696,15 @@ tool errors, 5xx responses, internal RPC errors and `tools/call` requests
 whose arguments the input schema rejected. Alerts are throttled to one
 per endpoint + tool + code every 15 minutes (the next one says how many
 were suppressed) and never more than one every 20 seconds per instance.
-Login-required and expired-token refusals, unknown methods from crawlers,
-4xx probes and `rhylthyme mcp-test` traffic are logged but not alerted.
+Logged but not alerted, because nothing is broken: login-required and
+expired-token refusals; a tool saying the caller left out an argument
+(handlers return these with `inputError()`, which tags the result
+`_meta["com.rhylthyme/errorKind"] = "input"`); any failed `tools/call` that
+carried no arguments at all, which is how directory scanners walk a tool
+list; unknown methods from crawlers; 4xx probes; and `rhylthyme mcp-test`
+traffic. A message that says something behind the server failed (a 5xx, a
+timeout) alerts regardless. When adding a tool, use `inputError()` for
+"you did not give me X" and `errorResult()` for everything else.
 Set `MCP_ALERTS_DISABLED=1` to turn alerts off. The error message stays in
 the log and the alert; it is never written to `mcp_events`.
 

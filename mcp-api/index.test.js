@@ -1386,3 +1386,11 @@ test("visualize_schedule takes a loose program: nothing stripped, problems repor
   } finally { global.fetch = realFetch; }
   assert.equal(shared, null, "nothing was published");
 });
+
+test("a missing argument is reported to the model as an error and tagged as the caller's", async () => {
+  const { client } = await connect("generic");
+  const res = await client.callTool({ name: "import_from_source", arguments: { source: "spoonacular", action: "search" } });
+  assert.equal(res.isError, true);
+  assert.match(res.content[0].text, /needs `query`/);
+  assert.equal(res._meta["com.rhylthyme/errorKind"], "input");
+});

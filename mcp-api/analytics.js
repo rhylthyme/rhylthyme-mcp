@@ -58,7 +58,11 @@ const INSERT_ATTEMPTS = 2;
 const ALERT_TIMEOUT_MS = 4000;
 const ALERT_REPEAT_MS = 15 * 60 * 1000; // same endpoint+tool+code at most this often
 const ALERT_MIN_GAP_MS = 20 * 1000;     // and never faster than this overall
-const EXPECTED_REFUSAL = /requires the user's Rhylthyme access token|not authorized \(40[13]\)|Token verification failed/i;
+const EXPECTED_REFUSAL = /requires the user's Rhylthyme (access token|account)|not authorized \(40[13]\)|Token verification failed/i;
+const UPSTREAM_FAILURE = /\(5\d\d\)|timed out|timeout|unavailable|fetch failed|ECONN|ENOTFOUND/i;
+// index.js marks a tool error that is the caller's doing ("action='search'
+// needs `query`") with this _meta key, so it is not mistaken for a fault.
+const ERROR_KIND_META = "com.rhylthyme/errorKind";
 
 function _str(v, max) {
   if (v === undefined || v === null) return null;
@@ -202,6 +206,7 @@ function applyOutcome(events, responseText, httpStatus, durationMs) {
     } else if (r.result && r.result.isError) {
       ev.ok = false;
       ev.error_code = "tool_error";
+      ev.error_kind = (r.result._meta && r.result._meta[ERROR_KIND_META]) || null;
       const first = (r.result.content || []).find((c) => c && c.type === "text");
       ev.error_message = _oneLine(first && first.text);
     } else {
@@ -217,10 +222,18 @@ function _oneLine(text) {
 }
 
 function toRow(ev) {
-  // rpc_id only pairs requests with responses; error_message is for the
-  // function log and alerts, never the table.
-  const { rpc_id, error_message, ...row } = ev;
+  // rpc_id only pairs requests with responses; error_message and error_kind
+  // are for the function log and alerts, never the table.
+  const { rpc_id, error_message, error_kind, ...row } = ev;
   return row;
+}
+
+// A tools/call that carried no arguments (a token aside). Directory scanners
+// walk the tool list this way to see what answers; a tool that then says
+// "I need X" is working, not broken.
+function isProbe(ev) {
+  const keys = ev.detail && Array.isArray(ev.detail.argKeys) ? ev.detail.argKeys : null;
+  return Boolean(keys) && keys.filter((k) => k !== "token").length === 0;
 }
 
 // "alert": something is broken. "warn": a client mistake or an expected
@@ -228,9 +241,17 @@ function toRow(ev) {
 function severity(ev) {
   if (ev.ok !== false) return null;
   const code = ev.error_code || "";
-  if (code === "tool_error") return EXPECTED_REFUSAL.test(ev.error_message || "") ? "warn" : "alert";
+  if (code === "tool_error") {
+    // Something behind us failed: ours to know about, whoever called.
+    if (UPSTREAM_FAILURE.test(ev.error_message || "")) return "alert";
+    if (ev.error_kind === "input" || isProbe(ev)) return "warn";
+    return EXPECTED_REFUSAL.test(ev.error_message || "") ? "warn" : "alert";
+  }
   if (/^http_5/.test(code) || code === "rpc_-32603") return "alert";
-  if (code === "rpc_-32602" && ev.method === "tools/call") return "alert";
+  // Arguments the schema rejects are worth an alert when a caller really
+  // tried (that is how the "compound" trigger label was found), not when
+  // it sent nothing.
+  if (code === "rpc_-32602" && ev.method === "tools/call") return isProbe(ev) ? "warn" : "alert";
   return "warn";
 }
 
@@ -391,6 +412,7 @@ function begin(bodyBuf, ctx, env) {
 }
 
 module.exports = {
+  ERROR_KIND_META,
   begin,
   waitUntil,
   severity,

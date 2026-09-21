@@ -782,6 +782,11 @@ function textResult(text, extra) {
 function errorResult(text) {
   return { content: [{ type: "text", text }], isError: true };
 }
+// The caller left out or mis-set an argument. Still an error to the model,
+// but analytics logs it as a warning instead of paging anyone.
+function inputError(text) {
+  return { content: [{ type: "text", text }], isError: true, _meta: { [Analytics.ERROR_KIND_META]: "input" } };
+}
 function loginRequired(what) {
   return errorResult(
     `${what} requires the user's Rhylthyme account. If this app can connect accounts, ask the user to connect Rhylthyme ` +
@@ -1599,7 +1604,7 @@ function registerImportText(server, vertical) {
       token = OAuth.resolveToken(token);
       if (!token) return loginRequired("import_text");
       const body = (text || "").trim();
-      if (!body) return errorResult("import_text needs `text` — the source to extract from.");
+      if (!body) return inputError("import_text needs `text` — the source to extract from.");
       try {
         const resp = await fetch(`${API_BASE}/api/import`, fetchOpts({
           method: "POST",
@@ -1723,7 +1728,7 @@ function registerImportFromSource(server, vertical) {
           }
           if (action === "import") {
             const idOrUrl = (query || text || "").trim();
-            if (!idOrUrl) return errorResult("Provide a Benchling protocol id or URL in `query`.");
+            if (!idOrUrl) return inputError("Provide a Benchling protocol id or URL in `query`.");
             const body = idOrUrl.startsWith("http")
               ? { url: idOrUrl }
               : { protocol_id: idOrUrl };
@@ -1763,10 +1768,10 @@ function registerImportFromSource(server, vertical) {
         return loginRequired(`import_from_source action='${action}'`);
       }
       if (action === "search" && !query) {
-        return errorResult("action='search' needs `query` (keywords to search for).");
+        return inputError("action='search' needs `query` (keywords to search for).");
       }
       if (action === "import" && !query && !text) {
-        return errorResult("action='import' needs `query` (URL or id) or `text` (pasted source).");
+        return inputError("action='import' needs `query` (URL or id) or `text` (pasted source).");
       }
       try {
         let url, options;
@@ -2246,7 +2251,7 @@ function registerCalibrateProgram(server, vertical) {
       token = OAuth.resolveToken(token);
       if (!token) return loginRequired("calibrate_program");
       if (!progId && !(program && typeof program === "object")) {
-        return errorResult("Pass `program_id` (a UUID from list_my_programs) or the `program` JSON to calibrate.");
+        return inputError("Pass `program_id` (a UUID from list_my_programs) or the `program` JSON to calibrate.");
       }
       if (!progId && !Array.isArray(history)) {
         return errorResult(
@@ -2351,7 +2356,7 @@ function registerListPublicRuns(server, vertical) {
         try { hash = _programVersion(program); } catch (e) { hash = ""; }
       }
       if (!PROGRAM_HASH_RE.test(hash)) {
-        return errorResult(
+        return inputError(
           "Pass either `program_hash` (\"sha256:\" plus 64 hex characters, from a run record's " +
           "programVersion) or the `program` JSON to hash. Contributed runs are keyed by the exact " +
           "program JSON that was run, so an edited program has no history until it is run again.",
@@ -2572,7 +2577,7 @@ function registerOneShotTool(server, vertical) {
     },
     async ({ query }) => {
       const q = (query || "").trim();
-      if (!q) return errorResult(oneShot.missingQuery);
+      if (!q) return inputError(oneShot.missingQuery);
       try {
         const searchParams = new URLSearchParams({ q, limit: "1" });
         if (cfg.envFilter) searchParams.set("environment", cfg.envFilter);
@@ -2634,7 +2639,7 @@ function registerPreviewTimeline(server, vertical) {
       const tracks = (program && program.tracks) || [];
       const stepCount = tracks.reduce((n, t) => n + ((t && t.steps) || []).length, 0);
       if (!tracks.length || !stepCount) {
-        return errorResult("Couldn't render a timeline — the program has no tracks/steps. Add at least one track with steps and try again.");
+        return inputError("Couldn't render a timeline — the program has no tracks/steps. Add at least one track with steps and try again.");
       }
       const totalSec = _programTotalSec(program);
       const hasRun = !!(run && typeof run === "object" && Array.isArray(run.steps) && run.steps.length);
