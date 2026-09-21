@@ -13,6 +13,47 @@ This repository is the source of the server that runs at
 rhylthyme-server application, copied here with the static assets it
 needs so it can be read, tested and self-hosted.
 
+## Try it: ask for a workout
+
+Connect the server (in Claude Code, `/plugin marketplace add rhylthyme/rhylthyme-mcp`
+then `/plugin install rhylthyme@rhylthyme`; anywhere else, add
+`https://mcp.rhylthyme.com/gym/mcp` as a connector), then say what you want in
+plain words:
+
+> Two of us in a garage gym: one kettlebell, one pull-up bar, one jump rope.
+> Thirty minutes, two rounds, and nobody stands around waiting for equipment.
+> Make it a Rhylthyme timeline.
+
+You write no JSON. The assistant does, and the server keeps it honest. With
+that prompt Claude made three tool calls:
+
+| Call | What came back |
+|---|---|
+| `validate_program` | `✅ Program is valid — 2 tracks, 20 steps, 30m makespan.` |
+| `analyze_schedule` | `Resource conflicts: none.` Each station has capacity 1, so this is the proof that Alex and Sam never want the kettlebell at the same moment |
+| `visualize_schedule` | a link, [gym.rhylthyme.com?share=4995ef1b88744e80](https://gym.rhylthyme.com?share=4995ef1b88744e80), with rest timers and interval beeps, and a text chart for the chat: |
+
+```
+                0                       15m                    30m
+Alex           │░Warm-…░▒S…▒░Pu…░▒Ju…▒░░░▒Sw…▒░Pu…░▒Ju…▒░░░▒St…▒│
+Sam            │░Warm-…░▒P…▒░Ju…░▒Sw…▒░░░▒Pu…▒░Ju…░▒Sw…▒░░░▒St…▒│
+```
+
+Ask "show me a picture" and `preview_timeline` returns an image in the chat.
+For one coloured by station, which makes the rotation obvious, save the
+program the assistant wrote (ours is [`examples/recipe/garage-circuit.json`](examples/recipe/garage-circuit.json)) and run:
+
+```bash
+npx -y github:rhylthyme/rhylthyme-timeline garage-circuit.json -o garage-circuit.png \
+  --style web --palette tableau --color-by task
+```
+
+![Garage circuit for two, coloured by station: the kettlebell, the bar and the rope are never double-booked](https://raw.githubusercontent.com/rhylthyme/rhylthyme-mcp/main/examples/recipe/garage-circuit.png)
+
+Then push on it: "add a third person", "we only have 20 minutes", "swap the
+rope for burpees". The assistant edits the program and the server checks it
+again.
+
 ## This repository and rhylthyme-cli-runner
 
 Two repositories do related things and are easy to confuse. This one is the
