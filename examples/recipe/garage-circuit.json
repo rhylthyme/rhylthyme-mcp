@@ -1,0 +1,297 @@
+{
+ "schemaVersion": "0.3.0-alpha",
+ "programId": "garage-circuit-for-two",
+ "name": "Garage circuit for two",
+ "environmentType": "gym",
+ "actors": 2,
+ "tracks": [
+  {
+   "trackId": "alex",
+   "name": "Alex",
+   "steps": [
+    {
+     "stepId": "alex-warmup",
+     "name": "Warm-up together",
+     "task": "floor",
+     "duration": {
+      "type": "fixed",
+      "seconds": "5m"
+     },
+     "startTrigger": {
+      "type": "programStart"
+     }
+    },
+    {
+     "stepId": "alex-r1-kettlebell",
+     "name": "Swings",
+     "task": "kettlebell",
+     "duration": {
+      "type": "fixed",
+      "seconds": "3m"
+     },
+     "startTrigger": {
+      "type": "afterStep",
+      "stepId": "alex-warmup"
+     }
+    },
+    {
+     "stepId": "alex-r1-pullup-bar",
+     "name": "Pull-ups",
+     "task": "pullup-bar",
+     "duration": {
+      "type": "fixed",
+      "seconds": "3m"
+     },
+     "startTrigger": {
+      "type": "afterStep",
+      "stepId": "alex-r1-kettlebell"
+     }
+    },
+    {
+     "stepId": "alex-r1-rope",
+     "name": "Jump rope",
+     "task": "rope",
+     "duration": {
+      "type": "fixed",
+      "seconds": "3m"
+     },
+     "startTrigger": {
+      "type": "afterStep",
+      "stepId": "alex-r1-pullup-bar"
+     }
+    },
+    {
+     "stepId": "alex-rest",
+     "name": "Rest",
+     "task": "floor",
+     "duration": {
+      "type": "fixed",
+      "seconds": "2m"
+     },
+     "startTrigger": {
+      "type": "afterStep",
+      "stepId": "alex-r1-rope"
+     }
+    },
+    {
+     "stepId": "alex-r2-kettlebell",
+     "name": "Swings",
+     "task": "kettlebell",
+     "duration": {
+      "type": "fixed",
+      "seconds": "3m"
+     },
+     "startTrigger": {
+      "type": "afterStep",
+      "stepId": "alex-rest"
+     }
+    },
+    {
+     "stepId": "alex-r2-pullup-bar",
+     "name": "Pull-ups",
+     "task": "pullup-bar",
+     "duration": {
+      "type": "fixed",
+      "seconds": "3m"
+     },
+     "startTrigger": {
+      "type": "afterStep",
+      "stepId": "alex-r2-kettlebell"
+     }
+    },
+    {
+     "stepId": "alex-r2-rope",
+     "name": "Jump rope",
+     "task": "rope",
+     "duration": {
+      "type": "fixed",
+      "seconds": "3m"
+     },
+     "startTrigger": {
+      "type": "afterStep",
+      "stepId": "alex-r2-pullup-bar"
+     }
+    },
+    {
+     "stepId": "alex-plank",
+     "name": "Plank-off",
+     "task": "floor",
+     "duration": {
+      "type": "fixed",
+      "seconds": "2m"
+     },
+     "startTrigger": {
+      "type": "afterStep",
+      "stepId": "alex-r2-rope"
+     }
+    },
+    {
+     "stepId": "alex-cooldown",
+     "name": "Stretch",
+     "task": "floor",
+     "duration": {
+      "type": "fixed",
+      "seconds": "3m"
+     },
+     "startTrigger": {
+      "type": "afterStep",
+      "stepId": "alex-plank"
+     }
+    }
+   ]
+  },
+  {
+   "trackId": "sam",
+   "name": "Sam",
+   "steps": [
+    {
+     "stepId": "sam-warmup",
+     "name": "Warm-up together",
+     "task": "floor",
+     "duration": {
+      "type": "fixed",
+      "seconds": "5m"
+     },
+     "startTrigger": {
+      "type": "programStart"
+     }
+    },
+    {
+     "stepId": "sam-r1-pullup-bar",
+     "name": "Pull-ups",
+     "task": "pullup-bar",
+     "duration": {
+      "type": "fixed",
+      "seconds": "3m"
+     },
+     "startTrigger": {
+      "type": "afterStep",
+      "stepId": "sam-warmup"
+     }
+    },
+    {
+     "stepId": "sam-r1-rope",
+     "name": "Jump rope",
+     "task": "rope",
+     "duration": {
+      "type": "fixed",
+      "seconds": "3m"
+     },
+     "startTrigger": {
+      "type": "afterStep",
+      "stepId": "sam-r1-pullup-bar"
+     }
+    },
+    {
+     "stepId": "sam-r1-kettlebell",
+     "name": "Swings",
+     "task": "kettlebell",
+     "duration": {
+      "type": "fixed",
+      "seconds": "3m"
+     },
+     "startTrigger": {
+      "type": "afterStep",
+      "stepId": "sam-r1-rope"
+     }
+    },
+    {
+     "stepId": "sam-rest",
+     "name": "Rest",
+     "task": "floor",
+     "duration": {
+      "type": "fixed",
+      "seconds": "2m"
+     },
+     "startTrigger": {
+      "type": "afterStep",
+      "stepId": "sam-r1-kettlebell"
+     }
+    },
+    {
+     "stepId": "sam-r2-pullup-bar",
+     "name": "Pull-ups",
+     "task": "pullup-bar",
+     "duration": {
+      "type": "fixed",
+      "seconds": "3m"
+     },
+     "startTrigger": {
+      "type": "afterStep",
+      "stepId": "sam-rest"
+     }
+    },
+    {
+     "stepId": "sam-r2-rope",
+     "name": "Jump rope",
+     "task": "rope",
+     "duration": {
+      "type": "fixed",
+      "seconds": "3m"
+     },
+     "startTrigger": {
+      "type": "afterStep",
+      "stepId": "sam-r2-pullup-bar"
+     }
+    },
+    {
+     "stepId": "sam-r2-kettlebell",
+     "name": "Swings",
+     "task": "kettlebell",
+     "duration": {
+      "type": "fixed",
+      "seconds": "3m"
+     },
+     "startTrigger": {
+      "type": "afterStep",
+      "stepId": "sam-r2-rope"
+     }
+    },
+    {
+     "stepId": "sam-plank",
+     "name": "Plank-off",
+     "task": "floor",
+     "duration": {
+      "type": "fixed",
+      "seconds": "2m"
+     },
+     "startTrigger": {
+      "type": "afterStep",
+      "stepId": "sam-r2-kettlebell"
+     }
+    },
+    {
+     "stepId": "sam-cooldown",
+     "name": "Stretch",
+     "task": "floor",
+     "duration": {
+      "type": "fixed",
+      "seconds": "3m"
+     },
+     "startTrigger": {
+      "type": "afterStep",
+      "stepId": "sam-plank"
+     }
+    }
+   ]
+  }
+ ],
+ "resourceConstraints": [
+  {
+   "task": "kettlebell",
+   "maxConcurrent": 1
+  },
+  {
+   "task": "pullup-bar",
+   "maxConcurrent": 1
+  },
+  {
+   "task": "rope",
+   "maxConcurrent": 1
+  },
+  {
+   "task": "floor",
+   "maxConcurrent": 2
+  }
+ ]
+}
