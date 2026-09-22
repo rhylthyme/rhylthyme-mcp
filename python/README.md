@@ -57,7 +57,7 @@ curl -s https://mcp.rhylthyme.com/mcp \
   -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}'
 ```
 
-Or the command-line tool: `pip install rhylthyme-cli-runner`, then
+Or the command-line tool: `pip install rhylthyme`, then
 `rhylthyme validate`, `rhylthyme analyze --finish-at 18:00`,
 `rhylthyme publish` (prints the live-timeline URL).
 

@@ -64,7 +64,7 @@ is the **command a person types**.
 |---|---|---|
 | What it is | The MCP **server**: the tools an AI assistant calls | A command-line **program**: the `rhylthyme` command |
 | Who uses it | Claude, ChatGPT, Cursor or any MCP client, on a person's behalf | A person at a terminal, a script, or CI |
-| Where it runs | Hosted at `mcp.rhylthyme.com`; nothing to install | On your machine: `pip install rhylthyme-cli-runner` |
+| Where it runs | Hosted at `mcp.rhylthyme.com`; nothing to install | On your machine: `pip install rhylthyme` |
 | Language | JavaScript (Node 20+) | Python 3.12+ |
 | Input | A program the assistant builds in conversation | A program file on disk (JSON or YAML) |
 | Validate a program | `validate_program` | `rhylthyme validate` (works offline) |
@@ -115,7 +115,7 @@ need in plain language and get back a live timeline URL, a program file,
 or both.
 
 ```bash
-pip install --upgrade rhylthyme-cli-runner   # 0.2.0a0 or later, Python 3.12+
+pip install rhylthyme                        # Python 3.12+
 rhylthyme login                              # opens rhylthyme.com in your browser
 rhylthyme generate "roast chicken, potatoes and green beans for 6" \
     -e kitchen --by 19:00 --with "one oven, four burners, one cook"
