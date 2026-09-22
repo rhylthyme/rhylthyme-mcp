@@ -49,11 +49,11 @@ calendar booking.
 ## Installation
 
 ```bash
-pip install "rhylthyme-cli-runner>=0.2.2a0"   # Python 3.12+
+pip install rhylthyme                        # Python 3.12+; the CLI, importers and renderer
 rhylthyme --version
 ```
 
-If that version is not on PyPI yet, install from source:
+The command itself is the `rhylthyme-cli-runner` package; from source:
 `pip install "git+https://github.com/rhylthyme/rhylthyme-cli-runner"`.
 
 **Installed as the `rhylthyme` Claude plugin?** Then the hosted MCP tools come
@@ -163,6 +163,7 @@ check the total length and the finish-together arithmetic against the source.
 rhylthyme publish program.json        # summary, ASCII Gantt, itinerary and the URL
 rhylthyme publish program.json -q     # just the URL
 rhylthyme publish program.json --json # url, imageUrl, makespanSeconds, warnings
+rhylthyme publish program.json -q --image timeline.png   # the URL, and a picture to show
 ```
 
 No account needed. The server validates again and refuses an invalid program.

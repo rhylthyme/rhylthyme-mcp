@@ -21,9 +21,10 @@ cycles, overlapping steps within a track, negative offsets, replicate rules).
 
 Exit status is non-zero when any file is invalid.
 
-### `rhylthyme publish PROGRAM_FILE`
+### `rhylthyme publish PROGRAM`
 
-Publishes a live, shareable timeline through the hosted MCP server. The server
+`PROGRAM` is a file, an http(s) URL, or `-` for standard input (the same for
+`analyze`). Publishes a live, shareable timeline through the hosted MCP server. The server
 validates again and refuses an invalid program.
 
 | Option | Meaning |
@@ -31,12 +32,13 @@ validates again and refuses an invalid program.
 | `-e, --env` | `generic`, `kitchen`, `lab`, `events`, `gym`; default comes from the program's `environmentType` |
 | `-q, --quiet` | print only the URL |
 | `--json` | print `url`, `shareId`, `imageUrl`, `makespanSeconds`, `warnings` |
+| `--image PATH` | also save a PNG of the timeline |
 | `--open` | open the timeline in a browser |
 
 Without `-q` or `--json` it prints a summary: total time, resources, an ASCII
 Gantt chart, a chronological itinerary and a schedule check.
 
-### `rhylthyme analyze PROGRAM_FILE`
+### `rhylthyme analyze PROGRAM`
 
 Resolves the program onto a clock on the hosted MCP server and reports total
 length, critical path, what gates each link of it, resource conflicts,
@@ -48,6 +50,23 @@ in-flight windows and tracks that finish early. Nothing is published.
 | `--start-at TEXT` | when the program starts, same formats; ignored with `--finish-at` |
 | `--strict` | exit non-zero when there are resource conflicts |
 | `--json` | the full analysis: `makespanSeconds`, `steps` (start and end per step), `criticalPath`, `bindingConstraints`, `resourceConflicts`, `inFlight`, `wallClock`, `validation` |
+
+### `rhylthyme import URL_OR_ID_OR_FILE`
+
+Imports a recipe (recipe sites, TheMealDB, Spoonacular, CookLang), a
+protocol (protocols.io, Opentrons, Benchling) or a slide deck as a program,
+validates it and writes `<programId>.json`. Needs the `rhylthyme-importers`
+package.
+
+| Option | Meaning |
+|---|---|
+| `-i IMPORTER` | which importer; default is chosen from the URL (`rhylthyme importers` lists them) |
+| `-o PATH`, `--stdout` | where the program goes |
+| `--publish`, `--open` | also publish a live timeline |
+| `--no-validate` | keep an import that does not validate |
+
+`rhylthyme search QUERY -i themealdb|spoonacular|protocolsio` finds things
+to import.
 
 ### `rhylthyme run PROGRAM_FILE`
 
