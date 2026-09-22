@@ -1394,3 +1394,15 @@ test("a missing argument is reported to the model as an error and tagged as the 
   assert.match(res.content[0].text, /needs `query`/);
   assert.equal(res._meta["com.rhylthyme/errorKind"], "input");
 });
+
+test("refusing an invalid program is the caller's problem, tagged as such", async () => {
+  const { client } = await connect("kitchen");
+  const bad = { programId: "x", name: "x", tracks: [{ trackId: "a", name: "A", steps: [
+    { stepId: "s1", name: "One", task: "t", duration: { type: "fixed", seconds: 60 }, startTrigger: { type: "programStart" } },
+    { stepId: "s2", name: "Two", task: "t", duration: { type: "fixed", seconds: 60 }, startTrigger: { type: "programStart" } },
+  ] }], resourceConstraints: [{ task: "t", maxConcurrent: 1 }] };
+  const res = await client.callTool({ name: "visualize_schedule", arguments: { program: bad } });
+  assert.equal(res.isError, true);
+  assert.match(res.content[0].text, /track_overlap/);
+  assert.equal(res._meta["com.rhylthyme/errorKind"], "input");
+});

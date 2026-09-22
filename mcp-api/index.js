@@ -1493,7 +1493,7 @@ function registerVisualizeSchedule(server, vertical) {
       program = withProgramDefaults(program);
       const v = Schedule.validateProgram(program);
       if (!v.valid && !allowInvalid) {
-        return errorResult(
+        return inputError(
           "Not published — the program has validation errors. Fix them and call visualize_schedule again " +
           "(or pass allowInvalid=true if the user explicitly wants a rough draft shared).\n\n" +
           Schedule.formatValidation(v),
@@ -1692,7 +1692,7 @@ function registerImportFromSource(server, vertical) {
       // so the Benchling token never crosses the MCP boundary.
       if (source === "benchling") {
         if (!token) {
-          return errorResult(
+          return inputError(
             "Benchling import requires a Rhylthyme access token (call **login** first, " +
             "then pass the token back as the `token` argument). Benchling itself uses the " +
             "API token the user stored at Rhylthyme → Settings → Benchling; this tool does NOT " +
@@ -1751,7 +1751,7 @@ function registerImportFromSource(server, vertical) {
             const imageUrl = share && share.shareId ? ogTimelineUrlForShare(share.shareId, vertical) : null;
             return { content: buildPreviewContent(program, summary, { imageUrl }) };
           }
-          return errorResult(
+          return inputError(
             "`random` isn't supported for source='benchling' — your Benchling library is " +
             "private, not a public catalog. Use action='search' to browse, then 'import' " +
             "to pull a specific protocol.",
@@ -2254,7 +2254,7 @@ function registerCalibrateProgram(server, vertical) {
         return inputError("Pass `program_id` (a UUID from list_my_programs) or the `program` JSON to calibrate.");
       }
       if (!progId && !Array.isArray(history)) {
-        return errorResult(
+        return inputError(
           "Pass `program_id` so the recorded runs can be found, or `history` with the run records themselves. " +
           "Calibration is a function of a program and its runs; without runs there is nothing but the author's guess.",
         );
@@ -2534,7 +2534,7 @@ function registerSaveProgram(server, vertical) {
       program = withProgramDefaults(program);
       const v = Schedule.validateProgram(program);
       if (!v.valid) {
-        return errorResult("Not saved — fix these validation errors first:\n\n" + Schedule.formatValidation(v));
+        return inputError("Not saved — fix these validation errors first:\n\n" + Schedule.formatValidation(v));
       }
       try {
         const resp = await fetch(`${API_BASE}/api/mcp/save`, fetchOpts({
