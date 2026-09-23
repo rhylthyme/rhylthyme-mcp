@@ -1333,8 +1333,9 @@ test("tools/list stays inside its budget on every endpoint", async () => {
     const { tools } = await client.listTools();
     const seen = tools.reduce((n, t) => n + modelFacing(t), 0);
     const whole = JSON.stringify(tools).length;
-    assert.ok(seen <= 16000, `${vertical}: model-facing definitions are ${seen} chars (~${Math.round(seen / 4)} tokens); budget 16000`);
-    assert.ok(whole <= 24000, `${vertical}: tools/list is ${whole} chars; budget 24000`);
+    // 16000 held 18 tools; review_program made it 19. Raise this only with a new tool.
+    assert.ok(seen <= 17000, `${vertical}: model-facing definitions are ${seen} chars (~${Math.round(seen / 4)} tokens); budget 17000`);
+    assert.ok(whole <= 25000, `${vertical}: tools/list is ${whole} chars; budget 25000`);
     for (const tool of tools) {
       assert.ok(tool.description.length <= 400, `${vertical}/${tool.name}: description is ${tool.description.length} chars; keep it under 400 and put the rest in LONG_DESC`);
       assert.ok(modelFacing(tool) <= 2000, `${vertical}/${tool.name}: ${modelFacing(tool)} chars`);
@@ -1405,4 +1406,29 @@ test("refusing an invalid program is the caller's problem, tagged as such", asyn
   assert.equal(res.isError, true);
   assert.match(res.content[0].text, /track_overlap/);
   assert.equal(res._meta["com.rhylthyme/errorKind"], "input");
+});
+
+test("review_program: an account tool that forwards program and source to the API and formats the findings", async () => {
+  const { client } = await connect("kitchen");
+  const anon = await client.callTool({ name: "review_program", arguments: { program: { programId: "x", name: "x", tracks: [] } } });
+  assert.equal(anon.isError, true);
+  assert.match(anon.content[0].text, /account|login/i);
+
+  const realFetch = global.fetch;
+  let seen = null;
+  global.fetch = async (url, init) => {
+    seen = { url: String(url), body: JSON.parse(init.body), auth: init.headers.Authorization };
+    return { ok: true, status: 200, json: async () => ({ summary: "One problem.", usable: false, model: "m",
+      findings: [{ severity: "error", stepId: "s1", message: "Too short.", suggestion: "90m" }, { severity: "note", message: "Fine." }] }) };
+  };
+  try {
+    const res = await client.callTool({ name: "review_program", arguments: { program: { programId: "x", name: "x", tracks: [] }, source_text: "simmer 90 min", token: "tok" } });
+    assert.ok(!res.isError, res.content[0].text);
+    assert.match(seen.url, /\/api\/import\/review$/);
+    assert.equal(seen.auth, "Bearer tok");
+    assert.equal(seen.body.source_text, "simmer 90 min");
+    assert.match(res.content[0].text, /One problem\./);
+    assert.match(res.content[0].text, /✗ `s1` Too short\.\n  → 90m/);
+    assert.equal(res.structuredContent.usable, false);
+  } finally { global.fetch = realFetch; }
 });

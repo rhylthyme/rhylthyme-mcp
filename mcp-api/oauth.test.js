@@ -83,7 +83,7 @@ test("bearer parsing and expiry", () => {
 });
 
 test("which calls need an account", () => {
-  for (const t of ["list_my_programs", "load_program", "save_program", "list_runs", "load_run", "calibrate_program", "import_text"]) {
+  for (const t of ["list_my_programs", "load_program", "save_program", "list_runs", "load_run", "calibrate_program", "import_text", "review_program"]) {
     assert.equal(OAuth.needsAccount(t, {}), true, t);
   }
   for (const t of ["validate_program", "analyze_schedule", "visualize_schedule", "search_public_recipes", "login", "cook_recipe"]) {

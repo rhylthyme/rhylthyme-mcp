@@ -484,8 +484,8 @@ The pure helpers are exported from `schedule.js`:
 ## Tool definition budget
 
 A host pastes every tool definition into the model's context on every turn,
-so `tools/list` is kept small: about 3,600 tokens of name, description and
-input schema for 18 tools (it was about 9,300). Three rules keep it there, and
+so `tools/list` is kept small: about 4,000 tokens of name, description and
+input schema for 19 tools (it was about 9,300 for 18). Three rules keep it there, and
 `index.test.js` enforces them:
 
 - **Descriptions are one to three sentences** (400 characters at most) that

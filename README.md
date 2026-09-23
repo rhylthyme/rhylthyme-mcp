@@ -216,6 +216,12 @@ resp = client.beta.messages.create(
 )
 ```
 
+**Reviewing an import.** `review_program` (an account tool) has a model read an
+imported program against its source and return findings: wrong durations,
+dropped steps, bad ordering, a total that disagrees with the source. Call it
+after `import_from_source` or `import_text`, apply what it says, and validate
+again.
+
 **Clients that can only launch a command**: `pip install rhylthyme-mcp` gives a
 `rhylthyme-mcp` command, a stdio bridge that passes every request through to
 the hosted server (source in [`python/`](python)):

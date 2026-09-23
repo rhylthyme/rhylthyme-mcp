@@ -43,7 +43,7 @@ const WELL_KNOWN_AS = "/.well-known/oauth-authorization-server";
 // an account only for some actions; see needsAccount().
 const ACCOUNT_TOOLS = new Set([
   "list_my_programs", "load_program", "save_program", "list_runs", "load_run",
-  "calibrate_program", "import_text",
+  "calibrate_program", "import_text", "review_program",
 ]);
 
 function issuer(env) {
