@@ -308,6 +308,40 @@
                     }
                   }
                 },
+                "instrument": {
+                  "type": "object",
+                  "description": "A galago-tools instrument command the runner sends when the step starts; the step ends when the instrument replies. Tool names resolve through a local workcell file (rhylthyme run --workcell).",
+                  "required": [
+                    "tool",
+                    "command"
+                  ],
+                  "additionalProperties": false,
+                  "properties": {
+                    "tool": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "Workcell tool name, e.g. 'shaker'"
+                    },
+                    "command": {
+                      "type": "string",
+                      "minLength": 1,
+                      "description": "galago command name (proto field name), e.g. 'start_shake'"
+                    },
+                    "params": {
+                      "type": "object",
+                      "description": "Command parameters by proto field name, e.g. {\"speed\": 1000, \"duration\": 300}"
+                    },
+                    "toolType": {
+                      "type": "string",
+                      "description": "galago tool type, e.g. 'bioshake'; lets commands be checked without a workcell"
+                    },
+                    "timeoutSeconds": {
+                      "type": "number",
+                      "exclusiveMinimum": 0,
+                      "description": "Fail the step if the instrument has not replied after this many seconds"
+                    }
+                  }
+                },
                 "codeBlock": {
                   "type": "object",
                   "description": "Code to execute when the step starts",
