@@ -1,4 +1,5 @@
 {
+ "attribution": "Derived from the .proto files of galago-tools (https://github.com/sciencecorp/galago-tools), Copyright 2025 - Science Corporation, licensed under the Apache License, Version 2.0. Exported by rhylthyme-galago scripts/export_catalog.py.",
  "galagoToolsVersion": "0.19.10",
  "galagoToolsCommit": "7ddf68c7bb7eda0243f6466cfbd6b97fdcfcf782",
  "tools": {

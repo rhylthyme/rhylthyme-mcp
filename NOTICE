@@ -1,0 +1,10 @@
+Third-party material in this repository
+
+mcp-api/galago-commands.json (and the command checks in mcp-api/galago.js that
+read it) is derived from the .proto files of galago-tools
+(https://github.com/sciencecorp/galago-tools), Copyright 2025 - Science
+Corporation, licensed under the Apache License, Version 2.0
+(http://www.apache.org/licenses/LICENSE-2.0). It was exported by rhylthyme-galago
+(https://github.com/rhylthyme/rhylthyme-galago) scripts/export_catalog.py; see
+that repository's NOTICE. This project is not affiliated with or endorsed by
+Science Corporation.
