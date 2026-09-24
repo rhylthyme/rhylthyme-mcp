@@ -1,0 +1,768 @@
+{
+ "galagoToolsVersion": "0.19.10",
+ "galagoToolsCommit": "7ddf68c7bb7eda0243f6466cfbd6b97fdcfcf782",
+ "tools": {
+  "cytation": {
+   "open_carrier": {},
+   "close_carrier": {},
+   "start_read": {
+    "protocol_file": {
+     "type": "string",
+     "jsonName": "protocolFile"
+    },
+    "experiment_name": {
+     "type": "string",
+     "jsonName": "experimentName"
+    },
+    "well_addresses": {
+     "type": "string",
+     "jsonName": "wellAddresses",
+     "repeated": true
+    }
+   }
+  },
+  "opentrons2": {
+   "run_program": {
+    "script_content": {
+     "type": "string",
+     "jsonName": "scriptContent"
+    },
+    "variables": {
+     "type": "any"
+    }
+   },
+   "pause": {},
+   "resume": {},
+   "cancel": {},
+   "toggle_light": {}
+  },
+  "pf400": {
+   "move": {
+    "location": {
+     "type": "string"
+    },
+    "motion_profile": {
+     "type": "string",
+     "jsonName": "motionProfile"
+    },
+    "approach_height": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647,
+     "jsonName": "approachHeight"
+    }
+   },
+   "grasp_plate": {
+    "width": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    },
+    "speed": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    },
+    "force": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    }
+   },
+   "release_plate": {
+    "width": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    },
+    "speed": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    }
+   },
+   "transfer": {
+    "source_nest": {
+     "type": "string",
+     "jsonName": "sourceNest"
+    },
+    "destination_nest": {
+     "type": "string",
+     "jsonName": "destinationNest"
+    },
+    "labware": {
+     "type": "string"
+    },
+    "motion_profile": {
+     "type": "string",
+     "jsonName": "motionProfile"
+    }
+   },
+   "wait": {
+    "duration": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    }
+   },
+   "release": {},
+   "engage": {},
+   "unwind": {},
+   "run_sequence": {
+    "sequence_name": {
+     "type": "string",
+     "jsonName": "sequenceName"
+    },
+    "labware": {
+     "type": "string"
+    }
+   },
+   "retrieve_plate": {
+    "labware": {
+     "type": "string"
+    },
+    "location": {
+     "type": "string"
+    },
+    "approach_height": {
+     "type": "number",
+     "jsonName": "approachHeight"
+    },
+    "motion_profile": {
+     "type": "string",
+     "jsonName": "motionProfile"
+    }
+   },
+   "dropoff_plate": {
+    "labware": {
+     "type": "string"
+    },
+    "location": {
+     "type": "string"
+    },
+    "approach_height": {
+     "type": "number",
+     "jsonName": "approachHeight"
+    },
+    "motion_profile": {
+     "type": "string",
+     "jsonName": "motionProfile"
+    }
+   },
+   "pick_lid": {
+    "labware": {
+     "type": "string"
+    },
+    "location": {
+     "type": "string"
+    },
+    "motion_profile": {
+     "type": "string",
+     "jsonName": "motionProfile"
+    },
+    "pick_from_plate": {
+     "type": "bool",
+     "jsonName": "pickFromPlate"
+    },
+    "approach_height": {
+     "type": "number",
+     "jsonName": "approachHeight"
+    }
+   },
+   "place_lid": {
+    "labware": {
+     "type": "string"
+    },
+    "location": {
+     "type": "string"
+    },
+    "motion_profile": {
+     "type": "string",
+     "jsonName": "motionProfile"
+    },
+    "place_on_plate": {
+     "type": "bool",
+     "jsonName": "placeOnPlate"
+    },
+    "approach_height": {
+     "type": "number",
+     "jsonName": "approachHeight"
+    }
+   },
+   "get_current_location": {},
+   "jog": {
+    "axis": {
+     "type": "string"
+    },
+    "distance": {
+     "type": "number"
+    }
+   },
+   "raw_command": {
+    "command": {
+     "type": "string"
+    }
+   },
+   "register_motion_profile": {
+    "id": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    },
+    "speed": {
+     "type": "number"
+    },
+    "speed2": {
+     "type": "number"
+    },
+    "accel": {
+     "type": "number"
+    },
+    "decel": {
+     "type": "number"
+    },
+    "accel_ramp": {
+     "type": "number",
+     "jsonName": "accelRamp"
+    },
+    "decel_ramp": {
+     "type": "number",
+     "jsonName": "decelRamp"
+    },
+    "inrange": {
+     "type": "number"
+    },
+    "straight": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    }
+   },
+   "load_waypoints": {
+    "waypoints": {
+     "type": "any"
+    }
+   },
+   "load_labware": {
+    "labwares": {
+     "type": "any"
+    }
+   }
+  },
+  "liconic": {
+   "fetch_plate": {
+    "cassette": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    },
+    "level": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    },
+    "wait_time": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647,
+     "jsonName": "waitTime"
+    }
+   },
+   "store_plate": {
+    "cassette": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    },
+    "level": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    },
+    "wait_time": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647,
+     "jsonName": "waitTime"
+    }
+   },
+   "reset": {},
+   "raw_command": {
+    "cmd": {
+     "type": "string"
+    }
+   }
+  },
+  "dataman70": {
+   "scan": {
+    "mapped_variable": {
+     "type": "string",
+     "jsonName": "mappedVariable"
+    }
+   },
+   "assert_barcode": {
+    "barcode": {
+     "type": "string"
+    }
+   }
+  },
+  "spectramax": {
+   "open_drawer": {},
+   "close_drawer": {},
+   "start_read": {
+    "protocol_file": {
+     "type": "string",
+     "jsonName": "protocolFile"
+    },
+    "experiment_name": {
+     "type": "string",
+     "jsonName": "experimentName"
+    }
+   }
+  },
+  "bioshake": {
+   "grip": {},
+   "ungrip": {},
+   "home": {},
+   "start_shake": {
+    "speed": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    },
+    "acceleration": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    },
+    "duration": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    }
+   },
+   "stop_shake": {},
+   "reset": {},
+   "wait_for_shake_to_finish": {
+    "timeout": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    }
+   },
+   "set_temperature": {
+    "temperature": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    }
+   },
+   "temperature_on": {},
+   "temperature_off": {}
+  },
+  "hig_centrifuge": {
+   "home": {},
+   "close_shield": {},
+   "open_shield": {
+    "bucket_id": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647,
+     "jsonName": "bucketId"
+    }
+   },
+   "spin": {
+    "speed": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    },
+    "acceleration": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    },
+    "decceleration": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    },
+    "duration": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    }
+   },
+   "home_shield": {}
+  },
+  "bravo": {
+   "initialize": {},
+   "run_protocol": {
+    "protocol_file": {
+     "type": "string",
+     "jsonName": "protocolFile"
+    }
+   },
+   "run_runset": {
+    "runset_file": {
+     "type": "string",
+     "jsonName": "runsetFile"
+    }
+   }
+  },
+  "multidrop": {
+   "home": {},
+   "dispense": {}
+  },
+  "vcode": {
+   "home": {},
+   "print": {
+    "format_name": {
+     "type": "string",
+     "jsonName": "formatName"
+    },
+    "field_0": {
+     "type": "string",
+     "jsonName": "field0"
+    },
+    "field_1": {
+     "type": "string",
+     "jsonName": "field1"
+    },
+    "field_2": {
+     "type": "string",
+     "jsonName": "field2"
+    },
+    "field_3": {
+     "type": "string",
+     "jsonName": "field3"
+    },
+    "field_4": {
+     "type": "string",
+     "jsonName": "field4"
+    },
+    "field_5": {
+     "type": "string",
+     "jsonName": "field5"
+    }
+   },
+   "print_and_apply": {
+    "format_name": {
+     "type": "string",
+     "jsonName": "formatName"
+    },
+    "side": {
+     "type": "string"
+    },
+    "drop_stage": {
+     "type": "bool",
+     "jsonName": "dropStage"
+    },
+    "field_0": {
+     "type": "string",
+     "jsonName": "field0"
+    },
+    "field_1": {
+     "type": "string",
+     "jsonName": "field1"
+    },
+    "field_2": {
+     "type": "string",
+     "jsonName": "field2"
+    },
+    "field_3": {
+     "type": "string",
+     "jsonName": "field3"
+    },
+    "field_4": {
+     "type": "string",
+     "jsonName": "field4"
+    },
+    "field_5": {
+     "type": "string",
+     "jsonName": "field5"
+    }
+   },
+   "rotate_180": {},
+   "rotate_stage": {
+    "angle": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    }
+   },
+   "show_diagnostics": {}
+  },
+  "plateloc": {
+   "seal": {},
+   "set_temperature": {
+    "temperature": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    }
+   },
+   "set_seal_time": {
+    "time": {
+     "type": "number"
+    }
+   },
+   "get_actual_temperature": {},
+   "stage_in": {},
+   "stage_out": {},
+   "show_diagnostics": {}
+  },
+  "xpeel": {
+   "peel": {
+    "threshold": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    }
+   },
+   "check_status": {},
+   "reset": {},
+   "restart": {},
+   "get_remaining_tape": {}
+  },
+  "alps3000": {
+   "get_status": {},
+   "seal_plate": {},
+   "get_error": {},
+   "set_temperature": {
+    "temperature": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647
+    }
+   },
+   "set_sealing_time": {
+    "seal_time": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647,
+     "jsonName": "sealTime"
+    }
+   },
+   "get_sealing_temperature_setpoint": {},
+   "get_sealing_time": {
+    "seal_time": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647,
+     "jsonName": "sealTime"
+    }
+   },
+   "get_sealing_temperature_actual": {}
+  },
+  "toolbox": {
+   "slack_message": {
+    "message": {
+     "type": "string"
+    }
+   },
+   "run_script": {
+    "script_content": {
+     "type": "string",
+     "jsonName": "scriptContent"
+    },
+    "blocking": {
+     "type": "bool"
+    }
+   },
+   "send_slack_alert": {
+    "workcell": {
+     "type": "string"
+    },
+    "tool": {
+     "type": "string"
+    },
+    "protocol": {
+     "type": "string"
+    },
+    "error_message": {
+     "type": "string",
+     "jsonName": "errorMessage"
+    }
+   },
+   "clear_last_slack_alert": {},
+   "write_to_json": {
+    "struct_object": {
+     "type": "any",
+     "jsonName": "structObject"
+    },
+    "file_path": {
+     "type": "string",
+     "jsonName": "filePath"
+    }
+   },
+   "text_to_speech": {
+    "text": {
+     "type": "string"
+    }
+   }
+  },
+  "hamilton": {
+   "run_protocol": {
+    "protocol": {
+     "type": "string"
+    }
+   },
+   "load_protocol": {
+    "protocol": {
+     "type": "string"
+    }
+   }
+  },
+  "microserve": {
+   "load": {
+    "stack_id": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647,
+     "jsonName": "stackId"
+    },
+    "plate_height": {
+     "type": "number",
+     "jsonName": "plateHeight"
+    },
+    "stack_height": {
+     "type": "number",
+     "jsonName": "stackHeight"
+    },
+    "plate_thickness": {
+     "type": "number",
+     "jsonName": "plateThickness"
+    }
+   },
+   "unload": {
+    "stack_id": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647,
+     "jsonName": "stackId"
+    },
+    "plate_height": {
+     "type": "number",
+     "jsonName": "plateHeight"
+    },
+    "stack_height": {
+     "type": "number",
+     "jsonName": "stackHeight"
+    },
+    "plate_thickness": {
+     "type": "number",
+     "jsonName": "plateThickness"
+    }
+   },
+   "home": {},
+   "abort": {},
+   "retract": {},
+   "go_to": {
+    "stack_id": {
+     "type": "int",
+     "min": -2147483648,
+     "max": 2147483647,
+     "jsonName": "stackId"
+    }
+   },
+   "raw_command": {
+    "command": {
+     "type": "string"
+    }
+   }
+  },
+  "vprep": {
+   "initialize": {},
+   "run_protocol": {
+    "protocol_file": {
+     "type": "string",
+     "jsonName": "protocolFile"
+    }
+   },
+   "run_runset": {
+    "runset_file": {
+     "type": "string",
+     "jsonName": "runsetFile"
+    }
+   }
+  },
+  "plr": {
+   "run_local_script": {
+    "path": {
+     "type": "string"
+    },
+    "blocking": {
+     "type": "bool"
+    }
+   },
+   "run_script": {
+    "script_content": {
+     "type": "string",
+     "jsonName": "scriptContent"
+    },
+    "blocking": {
+     "type": "bool"
+    }
+   }
+  },
+  "pyhamilton": {
+   "run_local_script": {
+    "path": {
+     "type": "string"
+    },
+    "blocking": {
+     "type": "bool"
+    }
+   },
+   "run_script": {
+    "script_content": {
+     "type": "string",
+     "jsonName": "scriptContent"
+    },
+    "blocking": {
+     "type": "bool"
+    }
+   }
+  },
+  "clariostar": {
+   "open_carrier": {},
+   "close_carrier": {},
+   "start_read": {
+    "protocol_name": {
+     "type": "string",
+     "jsonName": "protocolName"
+    },
+    "plate_id": {
+     "type": "string",
+     "jsonName": "plateId"
+    },
+    "assay_id": {
+     "type": "string",
+     "jsonName": "assayId"
+    },
+    "timepoint": {
+     "type": "string"
+    }
+   },
+   "set_temperature": {
+    "temperature": {
+     "type": "number"
+    }
+   }
+  },
+  "lcus1_relay": {
+   "switch": {
+    "on": {
+     "type": "bool"
+    }
+   },
+   "timed_switch": {
+    "duration_seconds": {
+     "type": "number",
+     "jsonName": "durationSeconds"
+    }
+   }
+  }
+ }
+}

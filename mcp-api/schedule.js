@@ -12,7 +12,8 @@
 //       Structural + logic checks mirroring rhylthyme.validate_program
 //       (duplicate ids, dangling refs, cycles, within-track overlaps,
 //       tasks without resource constraints, choice references, bad
-//       durations, schema 0.3.0 `instances` codes). Each finding carries
+//       durations, schema 0.3.0 `instances` codes, galago instrument
+//       commands via galago.js). Each finding carries
 //       a `fix` hint so the model can repair the program without
 //       guessing. `valid` depends on errors only; `info` holds advisory
 //       notes such as I_IMPLICIT_BARRIER.
@@ -33,8 +34,9 @@
 
 const TimelineRender = require("../static/js/timeline-render.js");
 const History = require("./history.js");
+const Galago = require("./galago.js");
 
-const { computeStepTimings, parseSeconds, stepDurationSeconds, expandReplicates } = TimelineRender;
+const { computeStepTimings, parseSeconds, stepDurationSeconds, expandReplicates, instrumentEstimate } = TimelineRender;
 
 const SINGLE_TRIGGER_TYPES = new Set([
   "programStart", "programStartOffset", "afterStep", "afterStepWithBuffer",
@@ -362,9 +364,14 @@ function validateProgram(program) {
       const where = `step:${step.stepId}`;
       if (!step.name) warn("missing_step_name", `Step "${step.stepId}" has no name.`, where, "Add a short imperative name (\"Sear the chicken\").");
 
-      // Duration.
+      // Duration. An instrument step may leave it to the instrument.
       const d = step.duration;
-      if (d === undefined || d === null) {
+      const estimate = instrumentEstimate(step);
+      if (estimate) {
+        const inst = step.instrument;
+        note("I_INSTRUMENT_DURATION", `Step "${step.stepId}" has no duration; it ends when ${inst.tool} replies. Timings use ${estimate.seconds} s (${estimate.source === "params" ? "from its params" : "a default"}).`,
+          where, "`rhylthyme plan --workcell` fills it from the tool's own estimate.");
+      } else if (d === undefined || d === null) {
         err("missing_duration", `Step "${step.stepId}" has no duration.`, where, "Add duration: {type:\"fixed\", seconds:N} (or \"5m\").");
       } else if (_isObj(d)) {
         if (d.type && !DURATION_TYPES.has(d.type)) {
@@ -524,6 +531,12 @@ function validateProgram(program) {
       "program.tracks",
       "If everything should be ready together, delay those tracks with programStartOffset or afterStep so they converge at the end.");
   }
+
+  // galago-tools instrument commands, checked against the tool type.
+  Galago.instrumentFindings(program).forEach((f) => {
+    if (f.severity === "error") err(f.code, f.message, f.where, f.fix);
+    else warn(f.code, f.message, f.where, f.fix);
+  });
 
   return {
     valid: errors.length === 0,

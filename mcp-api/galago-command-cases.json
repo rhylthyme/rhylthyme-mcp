@@ -1,0 +1,217 @@
+[
+ {
+  "toolType": "bioshake",
+  "command": "start_shake",
+  "params": {
+   "speed": 1000,
+   "acceleration": 5,
+   "duration": 300
+  },
+  "problems": []
+ },
+ {
+  "toolType": "bioshake",
+  "command": "start_shake",
+  "params": {
+   "speed": 1000.0
+  },
+  "problems": []
+ },
+ {
+  "toolType": "bioshake",
+  "command": "spin",
+  "params": {},
+  "problems": [
+   "bioshake has no command 'spin' (expected one of: grip, ungrip, home, start_shake, stop_shake, reset, wait_for_shake_to_finish, set_temperature, temperature_on, temperature_off)"
+  ]
+ },
+ {
+  "toolType": "bioshake",
+  "command": "start_shake",
+  "params": {
+   "rpm": 5
+  },
+  "problems": [
+   "unknown param 'rpm' (takes speed, acceleration, duration)"
+  ]
+ },
+ {
+  "toolType": "bioshake",
+  "command": "start_shake",
+  "params": {
+   "speed": "fast"
+  },
+  "problems": [
+   "param 'speed' must be an integer, got 'fast'"
+  ]
+ },
+ {
+  "toolType": "bioshake",
+  "command": "start_shake",
+  "params": {
+   "speed": 10.5
+  },
+  "problems": [
+   "param 'speed' must be an integer, got 10.5"
+  ]
+ },
+ {
+  "toolType": "bioshake",
+  "command": "start_shake",
+  "params": {
+   "speed": true
+  },
+  "problems": [
+   "param 'speed' must be an integer, got True"
+  ]
+ },
+ {
+  "toolType": "bioshake",
+  "command": "start_shake",
+  "params": {
+   "speed": 1099511627776
+  },
+  "problems": [
+   "param 'speed' must be an integer, got 1099511627776"
+  ]
+ },
+ {
+  "toolType": "bioshake",
+  "command": "start_shake",
+  "params": {
+   "speed": null
+  },
+  "problems": [
+   "param 'speed' must be an integer, got None"
+  ]
+ },
+ {
+  "toolType": "bioshake",
+  "command": "start_shake",
+  "params": {
+   "rpm": 1,
+   "speed": "x"
+  },
+  "problems": [
+   "unknown param 'rpm' (takes speed, acceleration, duration)",
+   "param 'speed' must be an integer, got 'x'"
+  ]
+ },
+ {
+  "toolType": "bioshake",
+  "command": "home",
+  "params": null,
+  "problems": []
+ },
+ {
+  "toolType": "liconic",
+  "command": "fetch_plate",
+  "params": {
+   "cassette": 1,
+   "level": 4
+  },
+  "problems": []
+ },
+ {
+  "toolType": "liconic",
+  "command": "raw_command",
+  "params": {
+   "cmd": 7
+  },
+  "problems": [
+   "param 'cmd' must be a string, got 7"
+  ]
+ },
+ {
+  "toolType": "pf400",
+  "command": "move",
+  "params": {
+   "location": "hotel-1",
+   "approachHeight": 10
+  },
+  "problems": []
+ },
+ {
+  "toolType": "pf400",
+  "command": "move",
+  "params": {
+   "approach_height": [
+    1
+   ]
+  },
+  "problems": [
+   "param 'approach_height' must be an integer, got [1]"
+  ]
+ },
+ {
+  "toolType": "opentrons2",
+  "command": "run_program",
+  "params": {
+   "script_content": "p.py",
+   "variables": {
+    "n": [
+     1,
+     {
+      "a": null
+     }
+    ]
+   }
+  },
+  "problems": []
+ },
+ {
+  "toolType": "opentrons2",
+  "command": "run_program",
+  "params": {
+   "variables": {
+    "a": 1
+   },
+   "extra": 1
+  },
+  "problems": [
+   "unknown param 'extra' (takes script_content, variables)"
+  ]
+ },
+ {
+  "toolType": "cytation",
+  "command": "start_read",
+  "params": {
+   "well_addresses": [
+    "A1",
+    "B2"
+   ]
+  },
+  "problems": []
+ },
+ {
+  "toolType": "cytation",
+  "command": "start_read",
+  "params": {
+   "well_addresses": "A1"
+  },
+  "problems": [
+   "param 'well_addresses' must be a list, got 'A1'"
+  ]
+ },
+ {
+  "toolType": "cytation",
+  "command": "start_read",
+  "params": {
+   "well_addresses": [
+    "A1",
+    2
+   ]
+  },
+  "problems": [
+   "param 'well_addresses' must be a string, got 2"
+  ]
+ },
+ {
+  "toolType": "blender",
+  "command": "whirr",
+  "params": {},
+  "problems": [
+   "unknown galago tool type 'blender' (expected one of: alps3000, bioshake, bravo, clariostar, cytation, dataman70, hamilton, hig_centrifuge, lcus1_relay, liconic, microserve, multidrop, opentrons2, pf400, plateloc, plr, pyhamilton, spectramax, toolbox, vcode, vprep, xpeel)"
+  ]
+ }
+]

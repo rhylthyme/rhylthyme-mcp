@@ -127,7 +127,25 @@
   // else max, else min. Indefinite: defaultSeconds if the author gave
   // one, otherwise a 60 s placeholder (matches the Python validator; the
   // live runner waits for the executor regardless).
+  // Instrument steps (galago-tools, rhylthyme-galago) may omit `duration`:
+  // they end when the instrument replies. For timing, use a duration-like
+  // command param, else 60 s -- the offline order of
+  // rhylthyme_galago.fill_durations. Returns {seconds, source} or null.
+  var INSTRUMENT_DURATION_PARAMS = ['duration', 'duration_seconds', 'seconds', 'run_time', 'time', 'timeout'];
+  var INSTRUMENT_DEFAULT_SECONDS = 60;
+  function instrumentEstimate(step) {
+    if (!step || step.duration !== undefined || !step.instrument || typeof step.instrument !== 'object') return null;
+    var params = step.instrument.params || {};
+    for (var i = 0; i < INSTRUMENT_DURATION_PARAMS.length; i++) {
+      var v = params[INSTRUMENT_DURATION_PARAMS[i]];
+      if (typeof v === 'number' && v > 0) return { seconds: v, source: 'params' };
+    }
+    return { seconds: INSTRUMENT_DEFAULT_SECONDS, source: 'default' };
+  }
+
   function stepDurationSeconds(step) {
+    var estimate = instrumentEstimate(step);
+    if (estimate) return estimate.seconds;
     var d = (step && step.duration) || {};
     if (typeof d === 'string' || typeof d === 'number') return Math.max(0, parseSeconds(d));
     var v;
@@ -1196,6 +1214,11 @@
         var isIndef = marks && d.type === 'indefinite';
         var isVar = marks && d.type === 'variable' && d.maxSeconds !== undefined;
         var isManual = marks && triggersOf(step).some(function (x) { return x && x.type === 'manual'; });
+        // Instrument steps whose duration is an estimate (none authored, or
+        // filled in by `rhylthyme plan`): dotted outline, "≈" on the length.
+        var inst = step.instrument && typeof step.instrument === 'object' ? step.instrument : null;
+        var isEst = !!instrumentEstimate(step) || !!(step.metadata && step.metadata.durationEstimate);
+        var approx = isEst ? '\u2248' : '';
         // Variable: faded extension from default end to max end.
         if (isVar) {
           var xMax = xOf(tim.start + parseSeconds(d.maxSeconds));
@@ -1221,6 +1244,7 @@
         else if (state === 'waiting') stroke = ' stroke="#b91c1c" stroke-width="2" stroke-dasharray="3,3"';
         else if (dev) stroke = ' stroke="' + DEV_STROKE[dev.sign] + '" stroke-width="2"';
         else if (isIndef) stroke = ' stroke="#111827" stroke-width="1.5" stroke-dasharray="5,3"';
+        else if (isEst && marks) stroke = ' stroke="#111827" stroke-width="1.2" stroke-dasharray="2,2"';
         parts.push(
           '<rect class="rt-bar' + (state ? ' rt-' + state : '') + '" data-step="' + esc(step.stepId) + '"'
           + (dev ? ' data-deviation="' + dev.sign + '" data-deviation-seconds="' + Math.round(dev.seconds) + '"' : '')
@@ -1228,7 +1252,8 @@
           + '" height="' + BAR_H + '" fill="' + color + '" opacity="' + opacity
           + '" rx="' + RX + '" ry="' + RX + '"' + (classic ? ' filter="url(#rt-shadow)"' : '') + stroke
           + (tooltips ? '><title>' + esc((step.name || step.stepId || '') + ' \u2014 ' + fmtTick(tim.start) + '\u2013' + fmtTick(tim.end)
-            + ' (' + fmtMin(tim.duration) + ')' + (step.task ? ', ' + step.task : '')) + '</title></rect>' : '/>')
+            + ' (' + approx + fmtMin(tim.duration) + (isEst ? ', estimated' : '') + ')' + (step.task ? ', ' + step.task : '')
+            + (inst ? ', on ' + inst.tool + ': ' + inst.command : '')) + '</title></rect>' : '/>')
         );
         if (isIndef) {
           parts.push('<rect x="' + x1.toFixed(1) + '" y="' + barTop(ti) + '" width="' + w.toFixed(1)
@@ -1243,7 +1268,7 @@
         if (!classic) {
           var ink = inkOn(color);
           var name = step.name || step.stepId || '';
-          var withDur = showDurations ? name + ' (' + fmtMin(tim.duration) + ')' : name;
+          var withDur = showDurations ? name + ' (' + approx + fmtMin(tim.duration) + ')' : name;
           var inner = w - 10 - (isManual ? 12 : 0);
           var cxIn = (x1 + w / 2 + (isManual ? 6 : 0)).toFixed(1), ty = (barMid(ti) + FS.bar * 0.36).toFixed(1);
           var inside = function (str, size) {
@@ -1615,6 +1640,7 @@
     stepNeedsFinish: stepNeedsFinish,
     expandReplicates: expandReplicates,
     parseSeconds: parseSeconds,
-    stepDurationSeconds: stepDurationSeconds
+    stepDurationSeconds: stepDurationSeconds,
+    instrumentEstimate: instrumentEstimate
   };
 }));
