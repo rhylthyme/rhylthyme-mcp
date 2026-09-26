@@ -29,11 +29,14 @@
     "node": ">=20"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.25.2",
-    "mcp-handler": "^1.0.7",
+    "@modelcontextprotocol/server": "^2.1.0",
+    "mcp-handler": "^2.2.0",
     "zod": "^4.3.6"
   },
   "optionalDependencies": {
     "@resvg/resvg-js": "^2.6.2"
+  },
+  "devDependencies": {
+    "@modelcontextprotocol/client": "^2.1.0"
   }
 }

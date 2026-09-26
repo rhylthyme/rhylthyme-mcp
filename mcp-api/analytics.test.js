@@ -49,6 +49,24 @@ test("buildEvents records client info on initialize", () => {
   assert.equal(ev.client_hash, Analytics.clientHash("203.0.113.9", "Claude-User", "s"));
 });
 
+test("buildEvents reads client info from the 2026-07-28 per-request _meta", () => {
+  const meta = {
+    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+    "io.modelcontextprotocol/clientInfo": { name: "Anthropic/ClaudeAI", version: "1.0.0" },
+  };
+  const [discover, call] = Analytics.buildEvents(
+    [{ id: 1, method: "server/discover", params: { _meta: meta } },
+     { id: 2, method: "tools/call", params: { name: "validate_program", arguments: { program: {} }, _meta: meta } }],
+    { vertical: "generic", salt: "s", headers: {} },
+  );
+  for (const ev of [discover, call]) {
+    assert.equal(ev.client_name, "Anthropic/ClaudeAI");
+    assert.equal(ev.client_version, "1.0.0");
+    assert.equal(ev.protocol_version, "2026-07-28");
+  }
+  assert.equal(call.tool, "validate_program");
+});
+
 test("tools/call rows keep safe fields only — never argument values, IPs or tokens", () => {
   const token = jwt({ sub: UID });
   const [ev] = Analytics.buildEvents(

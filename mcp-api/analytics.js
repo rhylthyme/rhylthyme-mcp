@@ -140,6 +140,15 @@ function buildEvents(messages, ctx) {
       country: country,
       detail: null,
     };
+    // MCP 2026-07-28 is stateless: there is no initialize, and every
+    // request carries the client's identity and protocol version in _meta.
+    const meta = (params._meta && typeof params._meta === "object") ? params._meta : {};
+    const ci2026 = meta["io.modelcontextprotocol/clientInfo"];
+    if (ci2026 && typeof ci2026 === "object") {
+      ev.client_name = _str(ci2026.name, 100);
+      ev.client_version = _str(ci2026.version, 50);
+      ev.protocol_version = _str(meta["io.modelcontextprotocol/protocolVersion"] || h("mcp-protocol-version"), 20);
+    }
     if (m.method === "initialize") {
       const ci = params.clientInfo || {};
       ev.client_name = _str(ci.name, 100);

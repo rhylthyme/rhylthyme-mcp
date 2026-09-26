@@ -3100,7 +3100,36 @@ function registerPrompts(server, vertical) {
   );
 }
 
-function _registerAll(server, vertical) {
+// MCP SDK v2 takes full schemas (z.object) where v1 took raw zod shapes. The
+// tool table above keeps raw shapes, so they are wrapped once here, exactly
+// as v1 did internally (z.object: unknown keys are dropped).
+function _asObject(schema) {
+  if (!schema || typeof schema !== "object") return schema;
+  if (typeof schema.safeParse === "function" || schema["~standard"]) return schema;
+  return z.object(schema);
+}
+
+function _v2Server(server) {
+  return new Proxy(server, {
+    get(target, prop, receiver) {
+      if (prop === "registerTool") {
+        return (name, cfg, cb) => target.registerTool(name, Object.assign({}, cfg, {
+          inputSchema: _asObject(cfg.inputSchema || {}),
+          ...(cfg.outputSchema ? { outputSchema: _asObject(cfg.outputSchema) } : {}),
+        }), cb);
+      }
+      if (prop === "registerPrompt") {
+        return (name, cfg, cb) => target.registerPrompt(name, Object.assign({}, cfg,
+          cfg.argsSchema ? { argsSchema: _asObject(cfg.argsSchema) } : {}), cb);
+      }
+      const value = Reflect.get(target, prop, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
+}
+
+function _registerAll(rawServer, vertical) {
+  const server = _v2Server(rawServer);
   registerValidateProgram(server, vertical);
   registerAnalyzeSchedule(server, vertical);
   registerVisualizeSchedule(server, vertical);
@@ -3133,15 +3162,16 @@ function getHandler(vertical) {
   if (!_handlerPromises[key]) {
     _handlerPromises[key] = (async () => {
       const { createMcpHandler } = await import("mcp-handler");
+      // mcp-handler 2.x (MCP SDK v2): serves the 2026-07-28 protocol
+      // (stateless, server/discover) and falls back to stateless Streamable
+      // HTTP for 2025-era clients. The function's 180 s limit (import_text
+      // waits up to 120 s on Flask) lives in vercel.json.
       return createMcpHandler(
         (server) => { _registerAll(server, key); },
         {
           serverInfo: { name: VERTICALS[key].serverName, version: SERVER_VERSION },
           instructions: serverInstructions(key),
         },
-        // import_text waits up to 120 s on the Flask side (four model
-        // turns); leave headroom so the MCP function is not the one cut off.
-        { basePath: "", maxDuration: 180 },
       );
     })().catch((e) => { _handlerPromises[key] = null; throw e; });
   }

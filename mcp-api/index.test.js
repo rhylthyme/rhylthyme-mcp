@@ -14,9 +14,8 @@ const { Readable } = require("stream");
 
 const handler = require("./index.js");
 const Schedule = require("./schedule.js");
-const { McpServer } = require("@modelcontextprotocol/sdk/server/mcp.js");
-const { Client } = require("@modelcontextprotocol/sdk/client/index.js");
-const { InMemoryTransport } = require("@modelcontextprotocol/sdk/inMemory.js");
+const { McpServer } = require("@modelcontextprotocol/server");
+const { Client, InMemoryTransport } = require("@modelcontextprotocol/client");
 
 const GOOD = {
   schemaVersion: "0.1.0", programId: "pancakes", name: "Pancakes",
@@ -1455,3 +1454,60 @@ test("review_program: an account tool that forwards program and source to the AP
     assert.equal(res.structuredContent.usable, false);
   } finally { global.fetch = realFetch; }
 });
+
+// ---- MCP 2026-07-28 (stateless) alongside 2025-era clients -----------------
+
+const META_2026 = {
+  "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+  "io.modelcontextprotocol/clientInfo": { name: "Anthropic/ClaudeAI", version: "1.0.0" },
+  "io.modelcontextprotocol/clientCapabilities": {},
+};
+
+async function post2026(path, method, params, extraHeaders) {
+  const req = fakeReq("POST", path, { jsonrpc: "2.0", id: 7, method, params: Object.assign({ _meta: META_2026 }, params || {}) },
+    Object.assign({ "mcp-protocol-version": "2026-07-28", "mcp-method": method }, extraHeaders || {}));
+  const res = fakeRes();
+  await handler(req, res);
+  await res.done;
+  return res;
+}
+
+test("HTTP entry: 2026-07-28 server/discover answers (it used to be a 400)", async () => {
+  const res = await post2026("/mcp", "server/discover");
+  assert.equal(res.statusCode, 200, res.text());
+  const rpc = parseRpc(res.text());
+  assert.ok(rpc.result.supportedVersions.includes("2026-07-28"));
+  assert.ok(rpc.result.capabilities.tools);
+  assert.match(rpc.result.instructions, /validate_program/);
+  assert.equal(rpc.result._meta["io.modelcontextprotocol/serverInfo"].name, "rhylthyme-mcp");
+});
+
+test("HTTP entry: 2026-07-28 tools/list and a tool call work statelessly", async () => {
+  const list = parseRpc((await post2026("/lab/mcp", "tools/list")).text());
+  const names = list.result.tools.map((t) => t.name);
+  assert.ok(names.includes("validate_program") && names.includes("visualize_schedule"));
+  const call = await post2026("/mcp", "tools/call",
+    { name: "validate_program", arguments: { program: GOOD_PROGRAM_FOR_2026 } }, { "mcp-name": "validate_program" });
+  const rpc = parseRpc(call.text());
+  assert.equal(rpc.result.isError, undefined, call.text());
+  assert.equal(rpc.result.structuredContent.valid, true);
+});
+
+test("HTTP entry: 2025-era initialize still works on the same handler", async () => {
+  const req = fakeReq("POST", "/mcp", {
+    jsonrpc: "2.0", id: 1, method: "initialize",
+    params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "old", version: "1" } },
+  });
+  const res = fakeRes();
+  await handler(req, res);
+  await res.done;
+  const rpc = parseRpc(res.text());
+  assert.equal(rpc.result.protocolVersion, "2025-11-25");
+});
+
+const GOOD_PROGRAM_FOR_2026 = {
+  programId: "t", name: "T", schemaVersion: "0.2.0-alpha",
+  tracks: [{ trackId: "a", name: "A", steps: [
+    { stepId: "s1", name: "One", duration: { type: "fixed", seconds: 60 }, startTrigger: { type: "programStart" } },
+  ] }],
+};
