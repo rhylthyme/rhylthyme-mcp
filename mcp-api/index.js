@@ -104,7 +104,7 @@ const VERTICALS = {
       missingQuery: "Need a recipe name or keyword to cook.",
       headingFor: (q) => `_Top match for "${q}":_`,
       noMatch: (q) =>
-        `No public recipe matches "${q}". **Next step:** build the program yourself, run **validate_program**, then call **visualize_schedule** to deliver a live timeline to the user — do NOT describe the schedule in prose; the user explicitly wants a visual timeline. Use parallel tracks for stations that happen at the same time (e.g. Eggs, Vegetables, Toast, Assembly) and set realistic durations. Skeleton:\n\n` +
+        `No public recipe matches "${q}". **Next step:** build the program yourself, run **validate_program**, then call **visualize_schedule** for a live timeline. Use parallel tracks for stations that happen at the same time (e.g. Eggs, Vegetables, Toast, Assembly) and set realistic durations. Skeleton:\n\n` +
         '```json\n' +
         '{\n' +
         '  "schemaVersion": "0.1.0",\n' +
@@ -166,8 +166,8 @@ const VERTICALS = {
         `**login** first.\n\n` +
         `2. **Pull from protocols.io / Opentrons** via ` +
         `\`import_from_source({source: "protocolsio" | "opentrons", action: "import", query: "<URL>", token})\`.\n\n` +
-        `3. **Build it yourself**, check it with **validate_program** / **analyze_schedule**, then call **visualize_schedule** — never describe stages ` +
-        `in prose; the user wants a runnable timeline at the bench. Use parallel tracks ` +
+        `3. **Build it yourself**, check it with **validate_program** / **analyze_schedule**, then publish it with **visualize_schedule** for a runnable timeline ` +
+        `at the bench. Use parallel tracks ` +
         `for incubations/processing that overlap, with realistic durations and equipment ` +
         `constraints.`,
       description:
@@ -196,7 +196,7 @@ const VERTICALS = {
       missingQuery: "Need an event type or keyword to plan.",
       headingFor: (q) => `_Top match for "${q}":_`,
       noMatch: (q) =>
-        `No public event template matches "${q}". **Next step:** build the run-of-show yourself, check it with **validate_program** (and **analyze_schedule** with finishAt for wall-clock cues), then call **visualize_schedule** to deliver it — do NOT describe cues in prose; the user wants a usable timeline. Lay out parallel tracks for ceremony/A-V/catering/music/photo with realistic cue offsets.`,
+        `No public event template matches "${q}". **Next step:** build the run-of-show yourself, check it with **validate_program** (and **analyze_schedule** with finishAt for wall-clock cues), then call **visualize_schedule** for a live run-of-show. Lay out parallel tracks for ceremony/A-V/catering/music/photo with realistic cue offsets.`,
       description:
         "One-shot: find the best-matching public event run-of-show by name/keyword and return a live timeline URL the MC/coordinator can follow during the event. Use this when the user says things like 'plan a wedding starting at 2pm ceremony', 'product launch with demos and Q&A', 'awards ceremony rundown' and wants a usable timeline immediately. Returns markdown summary (parallel tracks for ceremony/A-V/catering/music, total run-of-show) plus the live URL with real-time clock and cue list. For browsing first, use **search_public_recipes**.",
     },
@@ -223,7 +223,7 @@ const VERTICALS = {
       missingQuery: "Need a workout name or keyword to start.",
       headingFor: (q) => `_Top match for "${q}":_`,
       noMatch: (q) =>
-        `No public workout matches "${q}". **Next step:** build the workout yourself, run **validate_program**, then call **visualize_schedule** to deliver it — do NOT describe sets in prose; the user wants a runnable training timeline. Lay out parallel tracks for supersets and rest, with realistic set/rep/rest durations.`,
+        `No public workout matches "${q}". **Next step:** build the workout yourself, run **validate_program**, then call **visualize_schedule** for a runnable training timeline. Lay out parallel tracks for supersets and rest, with realistic set/rep/rest durations.`,
       description:
         "One-shot: find the best-matching public workout by name/keyword and return a live training timeline URL ready to follow at the gym. Use this when the user says things like 'let's do HIIT', 'push day workout', 'yoga flow with warm-up', '5x5 strength session', 'circuit training' and wants to start training without browsing alternatives. Returns a markdown summary (exercises, sets/reps, rest intervals, total time) plus the live URL with interval timers and superset coordination. For browsing first, use **search_public_recipes**.",
     },
@@ -263,12 +263,12 @@ function serverInstructions(vertical) {
     "- Existing content: **search_public_recipes** → **load_public_recipe** (or the one-shot tool). The result already includes the live URL.",
     oneShot.trimEnd(),
     "- New content: build the program → **validate_program** (fix every error it reports) → optionally **analyze_schedule** (makespan, critical path, conflicts, wall clock when you pass finishAt/startAt) → **visualize_schedule** for the shareable live timeline. visualize_schedule validates too and refuses invalid programs.",
-    "- Never describe a schedule in prose when a timeline is possible; the URL is the deliverable. Quote the Gantt / itinerary from the result when summarizing.",
+    "- visualize_schedule returns the live timeline URL together with an ASCII Gantt and an itinerary.",
     "- **login** is only needed for the private library (list_my_programs, load_program, save_program) and for imports. Public catalog tools need no token.",
     "",
     "Authoring rules: stepIds unique across the whole program; steps in one track never overlap (chain with afterStep); every `task` used by a step has a matching resourceConstraint; durations in seconds (numbers) or time strings (\"5m\", \"1h30m\"); repeated work is `replicates` on ONE step with `instances: \"each\"`/`\"all\"` and `maxInFlight`, never copied steps; to make everything finish together, delay short tracks with programStartOffset or afterStep, and pass finishAt to analyze_schedule for wall-clock start times.",
     "",
-    "Authoring from a goal or a source text: run the **plan_schedule** prompt — four turns (read the source back → confirm the program model → extract the steps with the words they came from → assign tracks and triggers). Without multi-message prompt support, read `rhylthyme://guide/extraction` for the same four turns. `rhylthyme://guide/authoring` is the cheat-sheet, `rhylthyme://guide/tools` the long form of each tool, `rhylthyme://schema/program` the full JSON schema, `rhylthyme://examples/*` complete valid programs.",
+    "Authoring from a goal or a source text: run the **plan_schedule** prompt — four turns (read the source back → confirm the program model → extract the steps with the words they came from → assign tracks and triggers). The same four turns are documented in `rhylthyme://guide/extraction` for clients without multi-message prompt support. `rhylthyme://guide/authoring` is the cheat-sheet, `rhylthyme://guide/tools` the long form of each tool, `rhylthyme://schema/program` the full JSON schema, `rhylthyme://examples/*` complete valid programs.",
   ].filter((l) => l !== "").join("\n");
 }
 
@@ -280,15 +280,15 @@ function serverInstructions(vertical) {
 const LONG_DESC = {
   visualize_schedule: {
     generic:
-      "Render a multi-step parallel schedule as a live timeline (cooking, lab protocols, event run-of-show, training). **Call this for ANY schedule you produce — imported, catalog match, or built freehand.** A schedule belongs in a visualization, never in prose. The program is validated first (same checks as validate_program); invalid programs are refused with fix hints instead of being published. Returns a markdown preview (cover photo if any, equipment list, ingredient list, ASCII Gantt timeline, chronological itinerary, schedule check) and a shareable rhylthyme.com URL with the interactive view.",
+      "Render a multi-step parallel schedule as a live timeline (cooking, lab protocols, event run-of-show, training). Works for any schedule you produce: imported, catalog match, or built freehand. The program is validated first (same checks as validate_program); invalid programs are refused with fix hints instead of being published. Returns a markdown preview (cover photo if any, equipment list, ingredient list, ASCII Gantt timeline, chronological itinerary, schedule check) and a shareable rhylthyme.com URL with the interactive view.",
     kitchen:
-      "Render a cooking schedule as a live timeline the user can follow on their phone. **Call this for ANY cooking schedule — imported recipe, catalog match, or composed freehand.** Recipes belong in a visualization, never in prose. Takes a Rhylthyme program (parallel tracks of timed steps with shared-equipment constraints), validates it, and returns a markdown preview (cover photo if any, equipment list, ingredient list, ASCII Gantt, chronological itinerary, schedule check, source attribution) plus a shareable kitchen.rhylthyme.com URL with interactive timeline, ingredient checklist, real-time play/pause, and audio step cues. For assembly meals with no catalog match (bagel & lox, charcuterie, breakfast spreads), still call this — the Gantt and itinerary are structural orchestration (not protected content) and they're the whole point.",
+      "Render a cooking schedule as a live timeline the user can follow on their phone. Works for any cooking schedule: imported recipe, catalog match, or composed freehand. Takes a Rhylthyme program (parallel tracks of timed steps with shared-equipment constraints), validates it, and returns a markdown preview (cover photo if any, equipment list, ingredient list, ASCII Gantt, chronological itinerary, schedule check, source attribution) plus a shareable kitchen.rhylthyme.com URL with interactive timeline, ingredient checklist, real-time play/pause, and audio step cues. For assembly meals with no catalog match (bagel & lox, charcuterie, breakfast spreads), still call this — the Gantt and itinerary are structural orchestration (not protected content) and they're the whole point.",
     lab:
-      "Render a lab protocol as a live timeline the researcher follows at the bench. **Call this for ANY protocol — imported, catalog match, or built freehand.** Protocols belong in a visualization, never in prose. Validates the program, then returns a markdown preview (instruments, materials, ASCII Gantt, chronological itinerary, schedule check, lab.rhylthyme.com URL). Indispensable for protocols where parallel incubations have to converge at the same point.",
+      "Render a lab protocol as a live timeline the researcher follows at the bench. Works for any protocol: imported, catalog match, or built freehand. Validates the program, then returns a markdown preview (instruments, materials, ASCII Gantt, chronological itinerary, schedule check, lab.rhylthyme.com URL). Indispensable for protocols where parallel incubations have to converge at the same point.",
     events:
-      "Render an event run-of-show as a live timeline the planner/MC follows during the event. **Call this for ANY event timeline — imported, catalog match, or freehand.** Run-of-shows belong in a visualization, never in prose. Validates the program, then returns a markdown preview (resources, ASCII Gantt across tracks, chronological cue list, schedule check, events.rhylthyme.com URL).",
+      "Render an event run-of-show as a live timeline the planner/MC follows during the event. Works for any event timeline: imported, catalog match, or freehand. Validates the program, then returns a markdown preview (resources, ASCII Gantt across tracks, chronological cue list, schedule check, events.rhylthyme.com URL).",
     gym:
-      "Render a workout as a live timeline the lifter follows during training. **Call this for ANY workout — imported, catalog match, or freehand.** Workouts belong in a visualization, never in prose. Validates the program, then returns a markdown preview (stations/equipment, ASCII Gantt across tracks, chronological itinerary, schedule check, gym.rhylthyme.com URL).",
+      "Render a workout as a live timeline the lifter follows during training. Works for any workout: imported, catalog match, or freehand. Validates the program, then returns a markdown preview (stations/equipment, ASCII Gantt across tracks, chronological itinerary, schedule check, gym.rhylthyme.com URL).",
   },
   import_from_source: {
     generic:
@@ -453,8 +453,8 @@ LONG_DESC.review_program = { generic:
   "A second opinion on an imported program. Importers read structure only, so what they produce is well-formed but can be wrong about time and about what the source meant. This sends the program and, if you pass it, the source text to a model (GPT-5.6 Luna by default: first on relating steps in the paper's evaluation) with instructions to check durations against the source and against practice, missing or invented steps, order and overlap, the total against a stated time, and double-booked equipment. It returns `summary`, `usable` and up to eight `findings` ({severity: error|warning|note, stepId?, message, suggestion?}), most important first. It changes nothing: apply the suggestions yourself and validate again. One model call, capped per day per account." };
 LONG_DESC.validate_program = { generic: "Check a Rhylthyme program for structural and scheduling errors BEFORE visualizing or saving it: missing/duplicate ids, dangling afterStep references, dependency cycles, steps that overlap within a track, tasks with no resourceConstraint, unparseable durations, invalid choice references, and schema 0.3.0-alpha `instances`/`replicates` misuse (E_INSTANCES_ON_SINGLE, E_EACH_WITH_REPLICATES, E_EACH_COUNT_MISMATCH, E_INFLIGHT_GT_COUNT, E_INFLIGHT_NO_CHAIN). Every finding has a `code`, a `message` and a `fix` hint — apply the fixes and re-run until `valid` is true. Warnings (e.g. tracks that finish far apart, W_UNBARRIERED_CHAIN) are advisory; `info` notes (I_IMPLICIT_BARRIER: a replicated step referenced without `instances`) suggest making a barrier explicit. Pure computation: no network, no side effects, safe to call repeatedly." };
 LONG_DESC.analyze_schedule = { generic: "Resolve a Rhylthyme program onto the clock and report what the live runner will do: every step's start/end (seconds from start and, if you pass `finishAt` or `startAt`, ISO wall-clock times), total makespan, the critical path, `bindingConstraints` (what gates each critical-path edge — an in-flight cap, a saturated task, an offset, or a plain dependency), resource conflicts tagged `kind: \"maxConcurrent\"` (more steps claim a task than its maxConcurrent allows) or `kind: \"inFlight\"` (more instances of a replicated step are between it and its barrier than `replicates.maxInFlight` allows), `inFlight` windows per replicated step, peak concurrency vs. declared actors, and per-track slack (instances get their own sub-track rows, tagged with `parentTrackId` / `instanceOf`). Use it to answer 'when do I start the potatoes so everything is ready at 6pm?' (pass finishAt), to find why a schedule is longer than expected (critical path and binding constraints — e.g. the cooling rack, not the oven), or to check equipment contention before visualizing. Pure computation; also returns validation findings so you can fix problems in the same turn.\n\n**Analysing against real history.** Pass `history` (run records from **load_run**, or from `rhylthyme runs` on disk) and every step with enough measurements gains `predicted: {seconds, low, high, basis, n}` beside its planned duration, plus top-level `predictedMakespan` and `predictedCriticalPath`. `basis` is `\"identical\"` (runs of the same program version, environment and variance factors — their median), `\"model\"` (a per-step regression on the factors that correlate) or `\"none\"` (no usable measurement). Simpler still: give `program_id` (a UUID from **list_my_programs**) plus `token` and the tool loads the caller's own recorded runs of that program for you. `useDurations: \"predicted\"` then recomputes the makespan, itinerary, critical path and conflicts from the predicted durations instead of the authored ones; the default stays `\"planned\"` so a program is analysed on what it says." };
-LONG_DESC.preview_timeline = { generic: "Render a Rhylthyme program as a static Gantt-chart image so the user can SEE what the live timeline looks like, without committing to opening the live URL. Use this when the user asks for a 'preview' or 'picture' of the timeline, or when you have just built a freehand program and want to give the user a visual before they commit. The tool returns ONLY an image plus a one-line caption — no recipe prose, no ingredient list, no copyright concerns. Just the structural visualization of which step runs when on which track.\n\nPair with **visualize_schedule** when the user wants the full shareable interactive URL too. This tool is for the visual-only quick preview case.\n\n**Planned versus actual.** Pass `run` — a recorded run of the same program, as **load_run** returns it in `run` — and the picture becomes a comparison: each step's real bar over a thin ghost bar at its planned position, outlined green where it finished early and amber where it ran late. That is the fastest way to show a person where a plan drifted.\n\n**Rendering option for HTML-artifact-capable clients (Claude.ai etc.):** Claude.ai's artifact sandbox blocks external scripts from non-cdnjs sources, so a `<script src=\"https://kitchen.rhylthyme.com/...\">` tag will fail. To render the timeline yourself with the official Rhylthyme look, call **get_renderer_source** first to fetch the renderer's full source as a string, then embed that source verbatim inside a `<script>…</script>` block in your HTML artifact, followed by your program JSON and a call to `Rhylthyme.renderTimeline(document.getElementById('t'), program)`. The renderer is open-source (Apache-2.0), zero-dependency, ~9KB." };
-LONG_DESC.get_renderer_source = { generic: "Returns the source code of the open-source Rhylthyme timeline renderer (Apache-2.0, ~9KB, zero dependencies). Use this when you're building an HTML artifact and the artifact sandbox blocks external scripts (e.g., Claude.ai's CSP only allows cdnjs.cloudflare.com). The returned text is plain JavaScript with a UMD wrapper — paste it verbatim inside a `<script>…</script>` block in your artifact, then call `Rhylthyme.renderTimeline(container, program)` where `program` is the Rhylthyme program JSON. After this call, the global `Rhylthyme` object exposes: `renderTimeline(container, program)`, `renderTimelineSvg(program)`, `computeStepTimings(program)`, `parseSeconds(value)` and `stepDurationSeconds(step)`." };
+LONG_DESC.preview_timeline = { generic: "Render a Rhylthyme program as a static Gantt-chart image so the user can SEE what the live timeline looks like, without committing to opening the live URL. Use this when the user asks for a 'preview' or 'picture' of the timeline, or when you have just built a freehand program and want to give the user a visual before they commit. The tool returns ONLY an image plus a one-line caption — no recipe prose, no ingredient list, no copyright concerns. Just the structural visualization of which step runs when on which track.\n\nPair with **visualize_schedule** when the user wants the full shareable interactive URL too. This tool is for the visual-only quick preview case.\n\n**Planned versus actual.** Pass `run` — a recorded run of the same program, as **load_run** returns it in `run` — and the picture becomes a comparison: each step's real bar over a thin ghost bar at its planned position, outlined green where it finished early and amber where it ran late. That is the fastest way to show a person where a plan drifted.\n\n**Rendering option for HTML-artifact-capable clients (Claude.ai etc.):** Claude.ai's artifact sandbox blocks external scripts from non-cdnjs sources, so a `<script src=\"https://kitchen.rhylthyme.com/...\">` tag will fail. To render the timeline yourself with the official Rhylthyme look, call **get_renderer_source** first to fetch the renderer's full source as a string, then embed that source verbatim inside a `<script>…</script>` block in your HTML artifact, followed by your program JSON and a call to `Rhylthyme.renderTimeline(document.getElementById('t'), program)`. The renderer is open-source (Apache-2.0), zero-dependency, about 90 KB." };
+LONG_DESC.get_renderer_source = { generic: "Returns the source code of the open-source Rhylthyme timeline renderer (Apache-2.0, about 90 KB, zero dependencies). Use this when you're building an HTML artifact and the artifact sandbox blocks external scripts (e.g., Claude.ai's CSP only allows cdnjs.cloudflare.com). The returned text is plain JavaScript with a UMD wrapper — paste it verbatim inside a `<script>…</script>` block in your artifact, then call `Rhylthyme.renderTimeline(container, program)` where `program` is the Rhylthyme program JSON. After this call, the global `Rhylthyme` object exposes: `renderTimeline(container, program)`, `renderTimelineSvg(program)`, `computeStepTimings(program)`, `parseSeconds(value)` and `stepDurationSeconds(step)`." };
 
 // ---------------------------------------------------------------------
 // What tools/list actually carries. A host pastes every tool definition
@@ -487,17 +487,17 @@ const ACCOUNT = "Needs the user's Rhylthyme account.";
 
 const SHORT = {
   validate_program: () =>
-    "Check a program before publishing or saving it: ids, dangling or cyclic triggers, steps overlapping in a track, tasks with no resourceConstraint, durations, replicates/instances misuse. Every finding has a code, a message and a fix; apply the fixes and re-run until valid. Pure computation.",
+    "Check a program before publishing or saving it: ids, dangling or cyclic triggers, steps overlapping in a track, tasks with no resourceConstraint, durations, replicates/instances misuse. Every finding has a code, a message and a suggested fix. Pure computation.",
   analyze_schedule: () =>
     "Put a program on the clock: each step's start and end, total length, the critical path and what gates it, resource conflicts, slack per track. Pass finishAt to answer 'when do I start X so everything is ready at 6pm?'. Pure computation. With `history` (or `program_id`) it also predicts durations from recorded runs; see rhylthyme://guide/tools.",
   visualize_schedule: (w) =>
-    `Publish a program as a live timeline and return its URL. This is the deliverable for ANY ${w.item === "program" ? "schedule" : w.item} you produce (${w.say}): never describe a schedule in prose. Validates first and refuses an invalid program with fix hints. Also returns an ASCII Gantt and an itinerary to quote.`,
+    `Publish a program as a live, shareable timeline (a public share link) and return its URL, with an ASCII Gantt and an itinerary. For a ${w.item === "program" ? "schedule" : w.item} the user wants to follow or share (${w.say}). Validates first and refuses an invalid program with fix hints.`,
   preview_timeline: () =>
-    "Return a static Gantt image of a program, for 'show me a preview' or 'a picture of the timeline'. Image and caption only; use visualize_schedule for the live URL. Planned versus actual: pass `run` (from load_run) to draw the real bars over the plan.",
+    "Return a static Gantt image of a program, for 'show me a preview' or 'a picture of the timeline'. Returns the image and a caption; the image is hosted through a public share link, as visualize_schedule creates. visualize_schedule gives the live URL. Planned versus actual: pass `run` (from load_run) to draw the real bars over the plan.",
   get_renderer_source: () =>
-    "Return the open-source timeline renderer's JavaScript (Apache-2.0, ~9KB, no dependencies) to paste into a <script> in an HTML artifact whose sandbox blocks external scripts; then call Rhylthyme.renderTimeline(container, program).",
+    "Return the open-source timeline renderer's JavaScript (Apache-2.0, about 90 KB, no dependencies) to paste into a <script> in an HTML artifact whose sandbox blocks external scripts; then call Rhylthyme.renderTimeline(container, program).",
   import_from_source: () =>
-    "Import a recipe or protocol from a URL or service into a program. source: spoonacular, themealdb (recipes); protocolsio, opentrons, benchling (lab); cooklang (.cook URL). action: search (no login), import (query = URL or id), random. import, random and benchling need the account. `enrich: true` splits an import into parallel tracks. Then call visualize_schedule.",
+    "Import a recipe or protocol from a URL or service into a program. source: spoonacular, themealdb (recipes); protocolsio, opentrons, benchling (lab); cooklang (.cook URL). action: search (no login), import (query = URL or id), random. import, random and benchling need the account. `enrich: true` splits an import into parallel tracks. Returns the program.",
   import_text: (w) =>
     `Turn pasted text (a ${w.item === "program" ? "recipe, protocol, run sheet or training plan" : w.item}) into a validated multi-track program on the server, in four model turns, with a table of the source span each step came from. Use when the user pastes the steps and no URL importer fits. ${ACCOUNT} Capped per day; you can instead author the program yourself and call validate_program.`,
   create_environment: () =>
@@ -597,10 +597,13 @@ const ANN = {
   pure:      { readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: false },
   // Reads from rhylthyme.com / external catalogs.
   read:      { readOnlyHint: true,  destructiveHint: false, idempotentHint: true,  openWorldHint: true  },
-  // Creates a share row / saves to the user's account. Never deletes.
-  publish:   { readOnlyHint: false, destructiveHint: false, idempotentHint: false, openWorldHint: true  },
-  // Upsert keyed on programId — safe to repeat.
-  upsert:    { readOnlyHint: false, destructiveHint: false, idempotentHint: true,  openWorldHint: true  },
+  // Writes: creates a public share row, or saves to (and can overwrite in)
+  // the user's account. destructiveHint is true on every tool that writes, so
+  // hosts ask before running it (connector directory review requires either
+  // readOnlyHint or destructiveHint on every tool).
+  publish:   { readOnlyHint: false, destructiveHint: true, idempotentHint: false, openWorldHint: true  },
+  // Upsert keyed on programId: repeating it is safe, but it overwrites.
+  upsert:    { readOnlyHint: false, destructiveHint: true, idempotentHint: true,  openWorldHint: true  },
 };
 
 // ---------------------------------------------------------------------
@@ -1751,9 +1754,10 @@ function registerImportFromSource(server, vertical) {
             const url = data.source_url || "";
             const summary = formatProgramSummary(program, url, summaryOpts(vertical))
               + "\n\nCall **visualize_schedule** with this program to share a live-timeline URL.";
-            const share = await createShareForProgram(program);
-            const imageUrl = share && share.shareId ? ogTimelineUrlForShare(share.shareId, vertical) : null;
-            return { content: buildPreviewContent(program, summary, { imageUrl }) };
+            // No preview image: hosting one would mean publishing a share of
+            // the user's private Benchling protocol without being asked, and
+            // this tool is read-only. visualize_schedule publishes on request.
+            return { content: buildPreviewContent(program, summary, {}) };
           }
           return inputError(
             "`random` isn't supported for source='benchling' — your Benchling library is " +
@@ -2521,7 +2525,7 @@ function registerSearchPublicRecipes(server, vertical) {
             content: [{
               type: "text",
               text:
-                `No public ${verticalLabel} programs found for "${query}". **Next step:** build the program yourself, run **validate_program**, then call **visualize_schedule** to deliver an inline + shareable timeline — do NOT describe the schedule in prose. The user explicitly wants a visual timeline.`,
+                `No public ${verticalLabel} programs found for "${query}". **Next step:** build the program yourself, run **validate_program**, then call **visualize_schedule** for an inline, shareable timeline.`,
             }],
             structuredContent: structured,
           };

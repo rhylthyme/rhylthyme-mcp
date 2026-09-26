@@ -53,6 +53,28 @@ test.after(async () => {
   setTimeout(() => process.exit(process.exitCode || 0), 250).unref();
 });
 
+// Anthropic connector directory review (claude.com/docs/connectors/building/
+// review-criteria): every tool has a title and readOnlyHint or
+// destructiveHint, a name of at most 64 characters, and a description that
+// says what the tool does without telling Claude how to behave.
+const DIRECTIVE = /\b(never|NEVER|do NOT|don't|Don't|always|ALWAYS|must|MUST)\b[^.]{0,40}\b(prose|describe|reply|respond|answer)\b|\bThen call\b|re-run until|for ANY\b/;
+
+for (const vertical of ["generic", "kitchen", "lab", "events", "gym"]) {
+  test(`${vertical}: every tool meets the connector directory rules`, async () => {
+    const { client } = await connect(vertical);
+    const { tools } = await client.listTools();
+    assert.ok(tools.length > 0);
+    for (const t of tools) {
+      const a = t.annotations || {};
+      assert.ok(t.title || a.title, `${t.name}: title`);
+      assert.ok(a.readOnlyHint === true || a.destructiveHint === true, `${t.name}: readOnlyHint or destructiveHint`);
+      assert.ok(t.name.length <= 64, `${t.name}: name length`);
+      assert.doesNotMatch(t.description, DIRECTIVE, `${t.name}: description directs Claude`);
+    }
+    assert.doesNotMatch(client.getInstructions() || "", DIRECTIVE, "server instructions direct Claude");
+  });
+}
+
 test("generic endpoint lists the core tool surface with annotations", async () => {
   const { client } = await connect("generic");
   const { tools } = await client.listTools();
@@ -69,7 +91,8 @@ test("generic endpoint lists the core tool surface with annotations", async () =
   assert.ok(vp.outputSchema && vp.outputSchema.properties.valid);
   const vs = tools.find((t) => t.name === "visualize_schedule");
   assert.equal(vs.annotations.readOnlyHint, false);
-  assert.equal(vs.annotations.destructiveHint, false);
+  // It writes (a public share row), so hosts should confirm it.
+  assert.equal(vs.annotations.destructiveHint, true);
   assert.ok(vs.title);
   assert.ok(vs.inputSchema.properties.program);
   const instr = client.getInstructions();
