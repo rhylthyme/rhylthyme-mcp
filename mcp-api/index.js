@@ -87,6 +87,7 @@ const VERTICALS = {
   generic: {
     serverName: "rhylthyme-mcp",
     title: "Rhylthyme",
+    description: "Schedule real-time, multi-track work (recipes, lab protocols, events, workouts) as timed tracks with dependencies and resource limits; validate, analyze and share a live timeline.",
     hostBase: API_BASE,
     envFilter: null,
     oneShot: null,
@@ -95,6 +96,7 @@ const VERTICALS = {
   kitchen: {
     serverName: "rhylthyme-kitchen-mcp",
     title: "Rhylthyme Kitchen",
+    description: "Cook recipes as a live multi-track timeline: import a recipe, schedule it around your oven and burners, and finish everything together.",
     hostBase: KITCHEN_BASE,
     envFilter: "kitchen",
     oneShot: {
@@ -146,6 +148,7 @@ const VERTICALS = {
   lab: {
     serverName: "rhylthyme-lab-mcp",
     title: "Rhylthyme Lab",
+    description: "Run lab protocols as live multi-track timelines: import from protocols.io, schedule around instruments and incubations, and share the run.",
     hostBase: LAB_BASE,
     envFilter: "laboratory",
     oneShot: {
@@ -186,6 +189,7 @@ const VERTICALS = {
   events: {
     serverName: "rhylthyme-events-mcp",
     title: "Rhylthyme Events",
+    description: "Plan events as a live run-of-show: parallel tracks for stage, AV and catering, with dependencies, timing and a shareable timeline.",
     hostBase: EVENTS_BASE,
     envFilter: "event",
     oneShot: {
@@ -213,6 +217,7 @@ const VERTICALS = {
   gym: {
     serverName: "rhylthyme-gym-mcp",
     title: "Rhylthyme Gym",
+    description: "Plan workouts as timed multi-track sessions: intervals, circuits and rests as a live timeline you can follow and share.",
     hostBase: GYM_BASE,
     envFilter: "gym",
     oneShot: {
@@ -238,6 +243,21 @@ const VERTICALS = {
     },
   },
 };
+
+// What the server says about itself at initialize / server/discover. Beyond
+// name and version, directories (Smithery, Glama) and clients show the title,
+// description, website and icon.
+function serverInfoFor(key) {
+  const v = VERTICALS[key] || VERTICALS.generic;
+  return {
+    name: v.serverName,
+    title: v.title,
+    version: SERVER_VERSION,
+    description: v.description,
+    websiteUrl: v.hostBase,
+    icons: [{ src: `${API_BASE}/static/favicon-192x192.png`, mimeType: "image/png", sizes: ["192x192"] }],
+  };
+}
 
 // ---------------------------------------------------------------------
 // Server-level instructions, surfaced to the client at `initialize`.
@@ -3169,7 +3189,7 @@ function getHandler(vertical) {
       return createMcpHandler(
         (server) => { _registerAll(server, key); },
         {
-          serverInfo: { name: VERTICALS[key].serverName, version: SERVER_VERSION },
+          serverInfo: serverInfoFor(key),
           instructions: serverInstructions(key),
         },
       );
@@ -3454,6 +3474,7 @@ module.exports._registerAll = _registerAll;
 module.exports._serverInstructions = serverInstructions;
 module.exports._schemas = { Program, AnyProgram };
 module.exports._VERTICALS = VERTICALS;
+module.exports._serverInfoFor = serverInfoFor;
 module.exports._programTotalSec = _programTotalSec;
 module.exports._renderSvgGantt = renderSvgGantt;
 module.exports._resvgOptions = resvgOptions;

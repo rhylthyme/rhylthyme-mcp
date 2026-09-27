@@ -13,6 +13,7 @@ const assert = require("node:assert/strict");
 const { Readable } = require("stream");
 
 const handler = require("./index.js");
+const { _VERTICALS, _serverInfoFor } = handler;
 const Schedule = require("./schedule.js");
 const { McpServer } = require("@modelcontextprotocol/server");
 const { Client, InMemoryTransport } = require("@modelcontextprotocol/client");
@@ -1503,6 +1504,33 @@ test("HTTP entry: 2025-era initialize still works on the same handler", async ()
   await res.done;
   const rpc = parseRpc(res.text());
   assert.equal(rpc.result.protocolVersion, "2025-11-25");
+});
+
+// Directories (Smithery, Glama) and clients read the server's title,
+// description, website and icon from serverInfo; each vertical has its own.
+test("serverInfo describes each endpoint: title, description, website, icon", async () => {
+  const discover = parseRpc((await post2026("/lab/mcp", "server/discover")).text());
+  const info = discover.result._meta["io.modelcontextprotocol/serverInfo"];
+  assert.equal(info.name, "rhylthyme-lab-mcp");
+  assert.equal(info.title, "Rhylthyme Lab");
+  assert.match(info.description, /lab protocols/);
+  assert.equal(info.websiteUrl, "https://lab.rhylthyme.com");
+  assert.match(info.icons[0].src, /^https:\/\/www\.rhylthyme\.com\/static\/.+\.png$/);
+
+  const req = fakeReq("POST", "/mcp", {
+    jsonrpc: "2.0", id: 1, method: "initialize",
+    params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "old", version: "1" } },
+  });
+  const res = fakeRes();
+  await handler(req, res);
+  await res.done;
+  const init = parseRpc(res.text()).result.serverInfo;
+  assert.equal(init.title, "Rhylthyme");
+  assert.ok(init.description.length > 40 && init.description.length <= 200);
+  for (const key of Object.keys(_VERTICALS)) {
+    const i = _serverInfoFor(key);
+    assert.ok(i.title && i.description && i.websiteUrl && i.icons.length, key);
+  }
 });
 
 const GOOD_PROGRAM_FOR_2026 = {
