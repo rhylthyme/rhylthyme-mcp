@@ -2523,6 +2523,8 @@ function registerSearchPublicRecipes(server, vertical) {
       if (query) params.set("q", query);
       if (env) params.set("environment", env);
       if (limit) params.set("limit", String(limit));
+      // A ranked list only: no gallery facet counts, the fast server path.
+      params.set("facets", "0");
       try {
         const resp = await fetch(`${API_BASE}/api/public/search?${params.toString()}`, fetchOpts());
         if (!resp.ok) return apiError("Search failed", resp, await readErrorBody(resp));
@@ -2650,7 +2652,7 @@ function registerOneShotTool(server, vertical) {
       const q = (query || "").trim();
       if (!q) return inputError(oneShot.missingQuery);
       try {
-        const searchParams = new URLSearchParams({ q, limit: "1" });
+        const searchParams = new URLSearchParams({ q, limit: "1", facets: "0" });
         if (cfg.envFilter) searchParams.set("environment", cfg.envFilter);
         const searchResp = await fetch(`${API_BASE}/api/public/search?${searchParams.toString()}`, fetchOpts());
         if (!searchResp.ok) return apiError("Search error", searchResp, await readErrorBody(searchResp));

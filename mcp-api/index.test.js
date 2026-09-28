@@ -1539,3 +1539,29 @@ const GOOD_PROGRAM_FOR_2026 = {
     { stepId: "s1", name: "One", duration: { type: "fixed", seconds: 60 }, startTrigger: { type: "programStart" } },
   ] }],
 };
+
+// Catalog searches ask for a ranked list only (facets=0), which the server
+// answers from its faster results-only path; the gallery's requests don't.
+test("catalog searches from MCP tools ask for results only (facets=0)", async () => {
+  const realFetch = global.fetch;
+  const urls = [];
+  global.fetch = async (url) => {
+    urls.push(String(url));
+    return { ok: true, status: 200, json: async () => ({ results: [], total: 0, facetCounts: {} }) };
+  };
+  try {
+    const { client: generic } = await connect("generic");
+    await generic.callTool({ name: "search_public_recipes", arguments: { query: "pasta" } });
+    const { client: kitchen } = await connect("kitchen");
+    await kitchen.callTool({ name: "cook_recipe", arguments: { query: "pasta" } });
+    const searches = urls.filter((u) => u.includes("/api/public/search?"));
+    assert.equal(searches.length, 2, urls.join("\n"));
+    for (const u of searches) {
+      const params = new URL(u).searchParams;
+      assert.equal(params.get("facets"), "0", u);
+      assert.equal(params.get("q"), "pasta", u);
+    }
+  } finally {
+    global.fetch = realFetch;
+  }
+});
