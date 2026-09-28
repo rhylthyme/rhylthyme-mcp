@@ -509,17 +509,17 @@ const SHORT = {
   validate_program: () =>
     "Check a program before publishing or saving it: ids, dangling or cyclic triggers, steps overlapping in a track, tasks with no resourceConstraint, durations, replicates/instances misuse. Every finding has a code, a message and a suggested fix. Pure computation.",
   analyze_schedule: () =>
-    "Put a program on the clock: each step's start and end, total length, the critical path and what gates it, resource conflicts, slack per track. Pass finishAt to answer 'when do I start X so everything is ready at 6pm?'. Pure computation. With `history` (or `program_id`) it also predicts durations from recorded runs; see rhylthyme://guide/tools.",
+    "Put a program on the clock: each step's start and end, total length, the critical path and what gates it, resource conflicts, slack per track. Pass finishAt to answer 'when do I start X so everything is ready at 6pm?'. Pure computation. With `history` (run records) or `program_id` it also predicts durations from recorded runs.",
   visualize_schedule: (w) =>
     `Publish a program as a live, shareable timeline (a public share link) and return its URL, with an ASCII Gantt and an itinerary. For a ${w.item === "program" ? "schedule" : w.item} the user wants to follow or share (${w.say}). Validates first and refuses an invalid program with fix hints.`,
   preview_timeline: () =>
-    "Return a static Gantt image of a program, for 'show me a preview' or 'a picture of the timeline'. Returns the image and a caption; the image is hosted through a public share link, as visualize_schedule creates. visualize_schedule gives the live URL. Planned versus actual: pass `run` (from load_run) to draw the real bars over the plan.",
+    "Return a static Gantt image of a program with a caption, for 'show me a preview' or 'a picture of the timeline'. The image is served from a public share link. Planned versus actual: with `run` (a run record) it draws the actual bars over the plan.",
   get_renderer_source: () =>
-    "Return the open-source timeline renderer's JavaScript (Apache-2.0, about 90 KB, no dependencies) to paste into a <script> in an HTML artifact whose sandbox blocks external scripts; then call Rhylthyme.renderTimeline(container, program).",
+    "Return the open-source timeline renderer's JavaScript (Apache-2.0, about 90 KB, no dependencies) for an HTML page or artifact that cannot load external scripts; it defines Rhylthyme.renderTimeline(container, program).",
   import_from_source: () =>
-    "Import a recipe or protocol from a URL or service into a program. source: spoonacular, themealdb (recipes); protocolsio, opentrons, benchling (lab); cooklang (.cook URL). action: search (no login), import (query = URL or id), random. import, random and benchling need the account. `enrich: true` splits an import into parallel tracks. Returns the program.",
+    "Import a recipe or protocol from a URL or service into a program. source: spoonacular, themealdb (recipes); protocolsio, opentrons, benchling (lab); cooklang (.cook URL). action: search (no account needed), import (query = URL or id), random. import, random and benchling need the user's Rhylthyme account. `enrich: true` splits an import into parallel tracks. Returns the program.",
   import_text: (w) =>
-    `Turn pasted text (a ${w.item === "program" ? "recipe, protocol, run sheet or training plan" : w.item}) into a validated multi-track program on the server, in four model turns, with a table of the source span each step came from. Use when the user pastes the steps and no URL importer fits. ${ACCOUNT} Capped per day; you can instead author the program yourself and call validate_program.`,
+    `Turn pasted text (a ${w.item === "program" ? "recipe, protocol, run sheet or training plan" : w.item}) into a validated multi-track program on the server, in four model turns, with a table of the source span each step came from. Capped per day. ${ACCOUNT}`,
   create_environment: () =>
     "Describe a workspace's equipment limits (one oven, two centrifuges, one stage) as resourceConstraints to copy into a program, so steps that share equipment are scheduled around each other.",
   login: (w) =>
@@ -532,15 +532,15 @@ const SHORT = {
   load_run: () =>
     `Open one recorded run: planned against actual timing per step, what ended each step, pauses. Shows where a plan drifts. ${ACCOUNT}`,
   calibrate_program: (w) =>
-    `Propose durations for a saved ${w.item} from its recorded runs: median as the default, P10 to P90 as the range, never narrower than the author's, with the evidence per step and the effect on total length. Saves nothing: pass \`accept\` to get the calibrated program, then save_program. ${ACCOUNT}`,
+    `Propose durations for a saved ${w.item} from its recorded runs: median as the default, P10 to P90 as the range, at least as wide as the author's, with the evidence per step and the effect on total length. Saves nothing; with \`accept\` it returns the calibrated program. ${ACCOUNT}`,
   review_program: (w) =>
     `A model reads an imported ${w.item === "program" ? "program" : w.item} against its source and reports what looks wrong: a default duration on "simmer for an hour", a step the importer dropped, steps chained that could overlap, a total that disagrees with the source. Changes nothing; returns findings to show the user. ${ACCOUNT}`,
   list_public_runs: (w) =>
-    `List anonymous runs other people contributed for one exact ${w.item} version: actual against planned length, and their conditions. For 'how long does this really take?'. No login needed. Pass \`program\` or \`program_hash\`.`,
-  search_public_recipes: (w, cfg) =>
-    `Search the public catalog of ${w.catalog} by ${w.by}. Returns ids, names, descriptions and URLs; no login. Pass an id to load_public_recipe${cfg.oneShot ? `, or a keyword straight to ${cfg.oneShot.name}` : ""}.`,
+    `List anonymous runs other people contributed for one exact ${w.item} version: actual against planned length, and their conditions. For 'how long does this really take?'. No account needed. Takes \`program\` or \`program_hash\`.`,
+  search_public_recipes: (w) =>
+    `Search the public catalog of ${w.catalog} by ${w.by}. Returns ids, names, descriptions and URLs; no account needed.`,
   load_public_recipe: (w) =>
-    `Open a public ${w.item === "program" ? "catalog entry" : w.item} by id: summary plus live-timeline URL (no visualize_schedule call needed).`,
+    `Open a public ${w.item === "program" ? "catalog entry" : w.item} by id: summary plus live-timeline URL.`,
 };
 
 const DESC = {};
@@ -551,10 +551,10 @@ Object.keys(WORDS).forEach((vertical) => {
   });
   const say = ONE_SHOT_SAY[vertical];
   if (cfg.oneShot && say) {
-    DESC[cfg.oneShot.name] = { [vertical]: `Find the best public ${WORDS[vertical].item} for a keyword and return its live timeline in one call. Use for ${say[0]}.` };
+    DESC[cfg.oneShot.name] = { [vertical]: `Find the best public ${WORDS[vertical].item} for a keyword and return its live timeline in one call, for requests like ${say[0]}.` };
   }
   if (cfg.random && say) {
-    DESC[cfg.random.name] = { [vertical]: `Pick a random public ${WORDS[vertical].item} and return its live timeline. Use for ${say[1]}.` };
+    DESC[cfg.random.name] = { [vertical]: `Pick a random public ${WORDS[vertical].item} and return its live timeline, for requests like ${say[1]}.` };
   }
 });
 

@@ -884,7 +884,7 @@ test("list_public_runs is registered, read-only and needs no login", async () =>
     ["limit", "program", "program_hash"],
   );
   assert.ok(!tool.inputSchema.properties.token, "contributed runs belong to nobody: no token");
-  assert.ok(/no login/i.test(tool.description));
+  assert.ok(/no account needed/i.test(tool.description));
 
   // Without a hash or a program it explains itself instead of calling the API.
   const realFetch = global.fetch;
@@ -1563,5 +1563,25 @@ test("catalog searches from MCP tools ask for results only (facets=0)", async ()
     }
   } finally {
     global.fetch = realFetch;
+  }
+});
+
+// Anthropic directory checklist: "Tool descriptions contain no instructions
+// about model behavior, other tools, or external instruction sources." Each
+// description says what its own tool does, on every endpoint.
+test("tool descriptions are self-contained: no other tools, guides or instructions", async () => {
+  for (const vertical of ["generic", "kitchen", "lab", "events", "gym"]) {
+    const { client } = await connect(vertical);
+    const tools = (await client.listTools()).tools;
+    const names = tools.map((t) => t.name);
+    for (const t of tools) {
+      const d = t.description || "";
+      for (const other of names) {
+        if (other !== t.name) assert.ok(!new RegExp(`\\b${other}\\b`).test(d), `${vertical}/${t.name} names ${other}: ${d}`);
+      }
+      assert.ok(!/rhylthyme:\/\/|https?:\/\//.test(d), `${vertical}/${t.name} points to another source: ${d}`);
+      assert.ok(!/\b(use (this )?(when|for|instead)|then call|you can instead|instead call)\b/i.test(d), `${vertical}/${t.name} instructs the model: ${d}`);
+      assert.ok(!/[​-‏⁠-⁯﻿]/.test(d), `${vertical}/${t.name} has hidden characters`);
+    }
   }
 });
