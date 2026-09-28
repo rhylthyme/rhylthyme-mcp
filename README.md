@@ -1,5 +1,8 @@
 # Rhylthyme MCP server
 
+[![Claude Connectors Directory](https://img.shields.io/badge/Claude%20Directory-Rhylthyme-D97757)](https://claude.ai/directory/rhylthyme)
+[![Listed on mcpservers.org](https://mcpservers.org/badge.svg)](https://mcpservers.org/servers/rhylthyme/rhylthyme-mcp)
+
 A [Model Context Protocol](https://modelcontextprotocol.io/) server for
 schedules that a person executes: cooking several dishes so they finish
 together, running a bench protocol with overlapping incubations, calling
@@ -15,7 +18,9 @@ needs so it can be read, tested and self-hosted.
 
 ## Try it: ask for a workout
 
-Connect the server (in Claude Code, `/plugin marketplace add rhylthyme/rhylthyme-mcp`
+Connect the server (in claude.ai, Claude Desktop or mobile, add
+[Rhylthyme from the Claude Connectors Directory](https://claude.ai/directory/rhylthyme);
+in Claude Code, `/plugin marketplace add rhylthyme/rhylthyme-mcp`
 then `/plugin install rhylthyme@rhylthyme`; anywhere else, add
 `https://mcp.rhylthyme.com/gym/mcp` as a connector), then say what you want in
 plain words:
