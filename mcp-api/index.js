@@ -729,7 +729,18 @@ const Program = z.looseObject({
 const AnyProgram = z.looseObject({}).describe("Program JSON; shape under validate_program.");
 // What the strict zod schema used to fill in before a program was published
 // or saved.
+// Clients (and directory scanners) sometimes nest the program one level
+// deeper: {program: {program: {...}}}. Use the inner one when the outer has
+// no tracks of its own.
+function unwrapProgram(program) {
+  if (program && typeof program === "object" && !Array.isArray(program) && !program.tracks) {
+    const inner = program.program || program.programJson || program.program_json;
+    if (inner && typeof inner === "object" && Array.isArray(inner.tracks)) return inner;
+  }
+  return program;
+}
 function withProgramDefaults(program) {
+  program = unwrapProgram(program);
   if (!program || typeof program !== "object" || program.schemaVersion) return program;
   return Object.assign({ schemaVersion: "0.1.0" }, program);
 }
@@ -1438,7 +1449,7 @@ function registerValidateProgram(server, vertical) {
       annotations: Object.assign({ title: "Validate a program" }, ANN.pure),
     },
     async ({ program }) => {
-      const v = Schedule.validateProgram(program);
+      const v = Schedule.validateProgram(unwrapProgram(program));
       return { content: [{ type: "text", text: Schedule.formatValidation(v) }], structuredContent: v };
     },
   );
@@ -1470,9 +1481,11 @@ function registerAnalyzeSchedule(server, vertical) {
     },
     async ({ program, finishAt, startAt, history, program_id: progId, token, predictionContext, useDurations }) => {
       token = OAuth.resolveToken(token);
+      program = unwrapProgram(program);
       const v = Schedule.validateProgram(program);
       if (!v.stats) {
-        return { content: [{ type: "text", text: Schedule.formatValidation(v) }], isError: true };
+        // The program itself can't be scheduled: the caller's to fix, not a fault.
+        return inputError(Schedule.formatValidation(v));
       }
       // Convenience: no `history` given, but the caller named one of their own
       // saved programs — load its recorded runs rather than making the model

@@ -15,6 +15,7 @@ const { Readable } = require("stream");
 const handler = require("./index.js");
 const { _VERTICALS, _serverInfoFor } = handler;
 const Schedule = require("./schedule.js");
+const Analytics = require("./analytics.js");
 const { McpServer } = require("@modelcontextprotocol/server");
 const { Client, InMemoryTransport } = require("@modelcontextprotocol/client");
 
@@ -144,6 +145,19 @@ test("analyze_schedule returns wall-clock itinerary when finishAt is given", asy
   assert.equal(a.resourceConflicts.length, 0);
   assert.ok(res.content[0].text.includes("Wall-clock itinerary"));
   assert.ok(a.validation.warnings.some((w) => w.code === "negative_offset_on_fixed"));
+});
+
+test("analyze_schedule: an unschedulable program is the caller's input error; a nested program is unwrapped", async () => {
+  const { client } = await connect("kitchen");
+  const bad = await client.callTool({ name: "analyze_schedule", arguments: { program: {} } });
+  assert.equal(bad.isError, true);
+  assert.equal(bad._meta[Analytics.ERROR_KIND_META], "input");
+  assert.ok(bad.content[0].text.includes("missing_program_id"));
+  const nested = await client.callTool({ name: "analyze_schedule", arguments: { program: { program: GOOD } } });
+  assert.equal(nested.isError, undefined);
+  assert.equal(nested.structuredContent.makespanSeconds, 1800);
+  const validated = await client.callTool({ name: "validate_program", arguments: { program: { program: GOOD } } });
+  assert.equal(validated.structuredContent.errors.length, 0);
 });
 
 test("analyze_schedule reports in-flight windows, conflict kinds and binding constraints", async () => {
