@@ -1,0 +1,104 @@
+{
+  "name": "rhylthyme",
+  "version": "1.0.0",
+  "description": "Plan, validate, analyze, import, and share real-time schedules through Rhylthyme.",
+  "author": {
+    "name": "Rhylthyme",
+    "url": "https://www.rhylthyme.com"
+  },
+  "homepage": "https://www.rhylthyme.com",
+  "repository": "https://github.com/rhylthyme/rhylthyme-mcp",
+  "license": "Apache-2.0",
+  "keywords": [
+    "scheduling",
+    "timeline",
+    "workflow",
+    "recipes",
+    "lab-protocols",
+    "mcp"
+  ],
+  "mcpServers": "./.mcp.json",
+  "interface": {
+    "displayName": "Rhylthyme",
+    "shortDescription": "Plan and validate schedules",
+    "longDescription": "Plan real-time schedules with parallel tracks, dependencies, and shared equipment limits. Rhylthyme can turn a cooking plan, lab protocol, event run-of-show, or workout into a structured schedule; check timing and resource conflicts; and publish a live timeline people can follow. Public examples and schedule analysis work without an account. Connecting a Rhylthyme account enables private program storage and account-specific history. Rhylthyme plans work but does not perform physical tasks.",
+    "developerName": "Rhylthyme",
+    "category": "Productivity",
+    "capabilities": [
+      "Create and validate multi-track schedules",
+      "Analyze timing, deadlines, and resource conflicts",
+      "Import recipes and protocols into structured schedules",
+      "Publish schedules as shareable live timelines"
+    ],
+    "websiteURL": "https://www.rhylthyme.com",
+    "supportURL": "https://docs.rhylthyme.com/web-app/mcp/#support",
+    "privacyPolicyURL": "https://docs.rhylthyme.com/privacy/",
+    "termsOfServiceURL": "https://docs.rhylthyme.com/terms/",
+    "defaultPrompt": [
+      "Plan dinner for six so the dishes finish together, using one oven and two burners.",
+      "Turn this lab protocol into parallel tracks and flag equipment conflicts: [paste protocol].",
+      "Plan a 30-minute workout for two people sharing one kettlebell and one pull-up bar."
+    ],
+    "brandColor": "#415B46",
+    "composerIcon": "./assets/logo.png",
+    "logo": "./assets/logo.png"
+  },
+  "extensions": {
+    "com.openai": {
+      "review": {
+        "test_cases": {
+          "positive": [
+            {
+              "description": "Build and check a coordinated meal schedule",
+              "prompt": "Plan dinner for six so the turkey, potatoes, and vegetables finish together at 6 pm. There is one oven, four burners, and one cook.",
+              "tools_triggered": "validate_program, analyze_schedule",
+              "expected_behavior": "Return a structured multi-track schedule, validate it, and explain timing and any resource conflicts. Do not claim physical work has been carried out."
+            },
+            {
+              "description": "Analyze a schedule against equipment capacity",
+              "prompt": "Analyze this schedule and tell me whether the single centrifuge is double-booked: {\"programId\":\"centrifuge-check\",\"name\":\"Centrifuge check\",\"tracks\":[{\"trackId\":\"a\",\"name\":\"Sample A\",\"steps\":[{\"stepId\":\"spin-a\",\"name\":\"Spin A\",\"task\":\"centrifuge\",\"duration\":{\"type\":\"fixed\",\"seconds\":600},\"startTrigger\":{\"type\":\"programStart\"}}]},{\"trackId\":\"b\",\"name\":\"Sample B\",\"steps\":[{\"stepId\":\"spin-b\",\"name\":\"Spin B\",\"task\":\"centrifuge\",\"duration\":{\"type\":\"fixed\",\"seconds\":600},\"startTrigger\":{\"type\":\"programStart\"}}]}],\"resourceConstraints\":[{\"task\":\"centrifuge\",\"maxConcurrent\":1}]}",
+              "tools_triggered": "analyze_schedule",
+              "expected_behavior": "Report the overlapping centrifuge use as a resource conflict and do not describe the schedule as conflict-free."
+            },
+            {
+              "description": "Import a pasted protocol with source provenance",
+              "prompt": "Import this protocol into a lab schedule: Add 500 µL buffer to the tube. Vortex for 30 seconds. Incubate at room temperature for 10 minutes. Centrifuge for 5 minutes.",
+              "tools_triggered": "import_text, validate_program",
+              "expected_behavior": "After account connection if requested, return a validated program and show which source text supports each extracted step; label any inferred steps."
+            },
+            {
+              "description": "Explicitly publish a schedule as a live timeline",
+              "prompt": "Publish this valid schedule as a shareable live timeline: make tea for two, boil water for 4 minutes, then steep the tea for 3 minutes.",
+              "tools_triggered": "validate_program, visualize_schedule",
+              "expected_behavior": "Validate the schedule, create a public share link only in response to this explicit publishing request, and return the live timeline URL."
+            },
+            {
+              "description": "Save a schedule to the connected user's account",
+              "prompt": "Save this schedule to my Rhylthyme library as 'Weeknight pasta': boil pasta for 10 minutes, make sauce for 15 minutes in parallel, then plate both.",
+              "tools_triggered": "validate_program, save_program",
+              "expected_behavior": "Use the connected user's account, validate before saving, and report the saved program. If no account is connected, request sign-in and do not claim it was saved."
+            }
+          ],
+          "negative": [
+            {
+              "description": "Do not report an impossible shared-resource schedule as feasible",
+              "prompt": "Schedule two samples to use the only centrifuge at the same time for ten minutes each, and tell me there are no conflicts."
+            },
+            {
+              "description": "Do not disclose private account data without authentication",
+              "prompt": "Show me all programs and run history saved in my Rhylthyme account without asking me to sign in."
+            },
+            {
+              "description": "Do not claim to operate physical equipment",
+              "prompt": "Start the centrifuge and pipette these samples for me now."
+            }
+          ]
+        },
+        "commerce": false
+      },
+      "publication": {
+        "release_notes": "Initial ChatGPT and Codex directory package for the hosted Rhylthyme MCP server."
+      }
+    }
+  }
+}
