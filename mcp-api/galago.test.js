@@ -83,3 +83,66 @@ test("programs without instrument steps are unaffected", () => {
   assert.ok(!v.info.some((f) => f.code === "I_INSTRUMENT_DURATION"));
   assert.ok(!v.warnings.some((f) => f.code.startsWith("instrument")));
 });
+
+// --- Phase actions (start / until / end / onAbort) ---------------------------
+
+const heat = (instrument, extra) => Object.assign({
+  stepId: "heat", name: "Heat and stir",
+  duration: { type: "fixed", seconds: 600 },
+  instrument: Object.assign({
+    tool: "stirrer",
+    start: [{ command: "set_temperature", params: { temperature_c: 40 } }, { command: "start_heating" }],
+    end: [{ command: "stop_heating" }],
+  }, instrument || {}),
+  startTrigger: { type: "afterStep", stepId: "load" },
+}, extra || {});
+
+test("start/end actions around a timer are valid", () => {
+  const v = S.validateProgram(program(load, heat()));
+  assert.equal(v.valid, true, JSON.stringify(v.errors));
+  assert.deepEqual(G.instrumentCalls(heat().instrument).map((c) => `${c.phase}:${c.tool}.${c.command}`),
+    ["start:stirrer.set_temperature", "start:stirrer.start_heating", "end:stirrer.stop_heating"]);
+  assert.equal(G.blockingCall(heat().instrument), null);
+});
+
+test("until is the blocking call, and actions may name another tool", () => {
+  const ph = heat({ start: [{ tool: "stirrer", command: "set_speed", params: { speed_rpm: 150 } }],
+    until: { command: "log_series", params: { count: 10, interval_s: 3 } }, end: undefined, tool: "ph" },
+  { stepId: "ph", duration: undefined });
+  delete ph.instrument.end;
+  const v = S.validateProgram(program(load, ph));
+  assert.equal(v.valid, true, JSON.stringify(v.errors));
+  assert.deepEqual(G.blockingCall(ph.instrument), { phase: "until", tool: "ph", command: "log_series", params: { count: 10, interval_s: 3 } });
+  assert.ok(v.warnings.some((w) => w.code === "instrument_unchecked" && /actions on stirrer/.test(w.message)));
+  // Timed by the until call's params (none duration-like here: the default)
+  assert.ok(v.info.some((f) => f.code === "I_INSTRUMENT_DURATION" && /ends when ph replies/.test(f.message)));
+});
+
+test("galago actions on the step's tool are checked against its toolType", () => {
+  const bad = shake({ command: undefined, start: [{ command: "start_shake", params: { speed: "fast" } }], end: [{ command: "no_such" }] });
+  delete bad.instrument.command;
+  bad.duration = { type: "fixed", seconds: 5 };
+  const errors = S.validateProgram(program(load, bad)).errors.filter((e) => e.code === "instrument_invalid_command");
+  assert.equal(errors.length, 2, JSON.stringify(errors));
+});
+
+test("malformed phase actions are errors", () => {
+  const codes = (p) => S.validateProgram(p).errors.map((e) => e.code);
+  assert.ok(codes(program(load, heat({ command: "x", until: { command: "y" } }))).includes("instrument_bad_shape"));
+  assert.ok(codes(program(load, heat({ start: [] }))).includes("instrument_bad_shape"));
+  assert.ok(codes(program(load, heat({ start: [{ params: {} }] }))).includes("instrument_bad_shape"));
+  assert.ok(codes(program(load, heat({ end: [{ command: "a", extra: 1 }] }))).includes("instrument_bad_shape"));
+  assert.ok(codes(program(load, heat({ start: undefined, end: undefined }))).includes("instrument_bad_shape"));
+});
+
+test("start/end steps without a duration end only by hand (warning)", () => {
+  const v = S.validateProgram(program(load, heat({}, { duration: undefined })));
+  assert.ok(v.warnings.some((w) => w.code === "instrument_no_end"));
+});
+
+test("LabMCP toolTypes are left to labmcp.js, not galago", () => {
+  const step = shake({ toolType: "labmcp-ika", command: "set_temperature", params: { temperature_c: 40 } });
+  const v = S.validateProgram(program(load, step));
+  assert.equal(v.valid, true, JSON.stringify(v.errors));
+  assert.ok(!v.warnings.some((w) => w.code.startsWith("instrument")), JSON.stringify(v.warnings));
+});

@@ -309,38 +309,7 @@
                   }
                 },
                 "instrument": {
-                  "type": "object",
-                  "description": "A galago-tools instrument command the runner sends when the step starts; the step ends when the instrument replies. Tool names resolve through a local workcell file (rhylthyme run --workcell).",
-                  "required": [
-                    "tool",
-                    "command"
-                  ],
-                  "additionalProperties": false,
-                  "properties": {
-                    "tool": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "Workcell tool name, e.g. 'shaker'"
-                    },
-                    "command": {
-                      "type": "string",
-                      "minLength": 1,
-                      "description": "galago command name (proto field name), e.g. 'start_shake'"
-                    },
-                    "params": {
-                      "type": "object",
-                      "description": "Command parameters by proto field name, e.g. {\"speed\": 1000, \"duration\": 300}"
-                    },
-                    "toolType": {
-                      "type": "string",
-                      "description": "galago tool type, e.g. 'bioshake'; lets commands be checked without a workcell"
-                    },
-                    "timeoutSeconds": {
-                      "type": "number",
-                      "exclusiveMinimum": 0,
-                      "description": "Fail the step if the instrument has not replied after this many seconds"
-                    }
-                  }
+                  "$ref": "#/definitions/instrument"
                 },
                 "codeBlock": {
                   "type": "object",
@@ -679,6 +648,93 @@
     }
   },
   "definitions": {
+    "instrument": {
+      "type": "object",
+      "description": "Instrument calls the runner makes for this step through a local workcell file (rhylthyme run --workcell), which maps each tool name to a driver: galago-tools or LabMCP. When the step starts, its start actions are sent in order, then its command or its until call; the step ends when that call replies (never on a timer). A step with neither runs on its own duration, or until the operator ends it. When the step ends, however it ends, its end actions are sent in order. onAbort actions are sent instead if the step fails or the run is aborted.",
+      "required": ["tool"],
+      "additionalProperties": false,
+      "properties": {
+        "tool": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Workcell tool name, e.g. 'shaker'; the default tool of every action"
+        },
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The step's one blocking call: a command of the tool (a galago command such as 'start_shake', a LabMCP tool such as 'tare'). The step ends when it replies"
+        },
+        "params": {
+          "type": "object",
+          "description": "Parameters of command, e.g. {\"speed\": 1000, \"duration\": 300}"
+        },
+        "toolType": {
+          "type": "string",
+          "description": "What the step's tool is, so its calls can be checked without a workcell: a galago tool type (e.g. 'bioshake') or a LabMCP server package (e.g. 'labmcp-ika')"
+        },
+        "timeoutSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Fail the step if command has not replied after this many seconds"
+        },
+        "start": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/instrumentAction" },
+          "description": "Actions sent in order when the step starts (and again on retry), e.g. set a temperature, then start heating"
+        },
+        "until": {
+          "$ref": "#/definitions/instrumentAction",
+          "description": "One blocking action whose reply ends the step, e.g. wait for a temperature or log readings; instead of command"
+        },
+        "end": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/instrumentAction" },
+          "description": "Actions sent in order when the step ends, by timer, operator or reply, e.g. stop heating"
+        },
+        "onAbort": {
+          "type": "array",
+          "minItems": 1,
+          "items": { "$ref": "#/definitions/instrumentAction" },
+          "description": "Actions sent when the step fails or the run is aborted, instead of the drivers' default safe stops"
+        }
+      },
+      "not": { "required": ["command", "until"] },
+      "anyOf": [
+        { "required": ["command"] },
+        { "required": ["until"] },
+        { "required": ["start"] },
+        { "required": ["end"] }
+      ]
+    },
+    "instrumentAction": {
+      "type": "object",
+      "description": "One call to a workcell tool",
+      "required": ["command"],
+      "additionalProperties": false,
+      "properties": {
+        "command": {
+          "type": "string",
+          "minLength": 1,
+          "description": "A command of the tool, as for instrument.command"
+        },
+        "params": {
+          "type": "object",
+          "description": "Parameters of command"
+        },
+        "tool": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Workcell tool name; defaults to the step's tool"
+        },
+        "timeoutSeconds": {
+          "type": "number",
+          "exclusiveMinimum": 0,
+          "description": "Fail if this call has not replied after this many seconds"
+        }
+      }
+    },
     "replicates": {
       "type": "object",
       "$comment": "Generates multiple time:ProperInterval instances. mode=parallel: all share the same time:hasBeginning (time:intervalStarts). mode=stagger: successive beginnings offset by a time:Duration (time:intervalAfter). mode=serial: each time:intervalMetBy its predecessor",

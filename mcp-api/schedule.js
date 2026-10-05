@@ -35,6 +35,7 @@
 const TimelineRender = require("../static/js/timeline-render.js");
 const History = require("./history.js");
 const Galago = require("./galago.js");
+const Labmcp = require("./labmcp.js");
 
 const { computeStepTimings, parseSeconds, stepDurationSeconds, expandReplicates, instrumentEstimate } = TimelineRender;
 
@@ -366,11 +367,14 @@ function validateProgram(program) {
 
       // Duration. An instrument step may leave it to the instrument.
       const d = step.duration;
-      const estimate = instrumentEstimate(step);
-      if (estimate) {
-        const inst = step.instrument;
-        note("I_INSTRUMENT_DURATION", `Step "${step.stepId}" has no duration; it ends when ${inst.tool} replies. Timings use ${estimate.seconds} s (${estimate.source === "params" ? "from its params" : "a default"}).`,
+      const estimate = Labmcp.stepEstimate(step) || instrumentEstimate(step);
+      if (estimate && Galago.blockingCall(step.instrument)) {
+        const call = Galago.blockingCall(step.instrument);
+        note("I_INSTRUMENT_DURATION", `Step "${step.stepId}" has no duration; it ends when ${call.tool} replies. Timings use ${estimate.seconds} s (${estimate.source === "params" ? (estimate.detail ? `from ${estimate.detail}` : "from its params") : "a default"}).`,
           where, "`rhylthyme plan --workcell` fills it from the tool's own estimate.");
+      } else if (estimate) {
+        // Only start/end actions: runs until the operator ends it
+        // (instrument_no_end, from Galago.instrumentFindings); timed at the default.
       } else if (d === undefined || d === null) {
         err("missing_duration", `Step "${step.stepId}" has no duration.`, where, "Add duration: {type:\"fixed\", seconds:N} (or \"5m\").");
       } else if (_isObj(d)) {
@@ -481,7 +485,8 @@ function validateProgram(program) {
   });
 
   // Timing-based checks: cycles / unresolved and within-track overlaps.
-  const timings = computeStepTimings(program);
+  // LabMCP steps that end on a reply are timed by their estimate
+  const timings = computeStepTimings(Labmcp.withEstimates(program));
   Object.keys(timings).forEach((id) => {
     if (timings[id].resolved) return;
     // Dangling refs were already reported above; only surface the
@@ -532,8 +537,9 @@ function validateProgram(program) {
       "If everything should be ready together, delay those tracks with programStartOffset or afterStep so they converge at the end.");
   }
 
-  // galago-tools instrument commands, checked against the tool type.
-  Galago.instrumentFindings(program).forEach((f) => {
+  // Instrument calls, checked against the tool type: galago-tools commands,
+  // and LabMCP tools against the LabMCP catalogue.
+  Galago.instrumentFindings(program).concat(Labmcp.instrumentFindings(program)).forEach((f) => {
     if (f.severity === "error") err(f.code, f.message, f.where, f.fix);
     else warn(f.code, f.message, f.where, f.fix);
   });
@@ -1013,6 +1019,8 @@ function withDurations(program, secondsByStep) {
  */
 function analyzeSchedule(program, opts) {
   opts = opts || {};
+  // LabMCP steps that end on a reply are timed by their estimate (flagged)
+  program = Labmcp.withEstimates(program);
   const anchors = { finishAt: opts.finishAt, startAt: opts.startAt };
   // An empty array is no history: nothing to predict from, so nothing to add.
   const history = Array.isArray(opts.history) && opts.history.length ? opts.history : null;

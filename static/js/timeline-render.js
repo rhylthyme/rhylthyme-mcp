@@ -135,12 +135,21 @@
   var INSTRUMENT_DEFAULT_SECONDS = 60;
   function instrumentEstimate(step) {
     if (!step || step.duration !== undefined || !step.instrument || typeof step.instrument !== 'object') return null;
-    var params = step.instrument.params || {};
+    // The params of the call whose reply ends the step: its command, or its
+    // until action; a step with only start/end actions gets the default.
+    var inst = step.instrument;
+    var params = (inst.command ? inst.params : (inst.until && typeof inst.until === 'object' ? inst.until.params : null)) || {};
     for (var i = 0; i < INSTRUMENT_DURATION_PARAMS.length; i++) {
       var v = params[INSTRUMENT_DURATION_PARAMS[i]];
       if (typeof v === 'number' && v > 0) return { seconds: v, source: 'params' };
     }
     return { seconds: INSTRUMENT_DEFAULT_SECONDS, source: 'default' };
+  }
+
+  // The call an instrument step waits on: its command, or its until action
+  function instCommand(inst) {
+    if (inst.command) return inst.command;
+    return inst.until && typeof inst.until === 'object' ? inst.until.command || '' : '';
   }
 
   function stepDurationSeconds(step) {
@@ -1253,7 +1262,7 @@
           + '" rx="' + RX + '" ry="' + RX + '"' + (classic ? ' filter="url(#rt-shadow)"' : '') + stroke
           + (tooltips ? '><title>' + esc((step.name || step.stepId || '') + ' \u2014 ' + fmtTick(tim.start) + '\u2013' + fmtTick(tim.end)
             + ' (' + approx + fmtMin(tim.duration) + (isEst ? ', estimated' : '') + ')' + (step.task ? ', ' + step.task : '')
-            + (inst ? ', on ' + inst.tool + ': ' + inst.command : '')) + '</title></rect>' : '/>')
+            + (inst ? ', on ' + inst.tool + (instCommand(inst) ? ': ' + instCommand(inst) : '') : '')) + '</title></rect>' : '/>')
         );
         if (isIndef) {
           parts.push('<rect x="' + x1.toFixed(1) + '" y="' + barTop(ti) + '" width="' + w.toFixed(1)

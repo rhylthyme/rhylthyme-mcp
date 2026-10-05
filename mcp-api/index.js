@@ -48,6 +48,7 @@ const { z } = require("zod");
 // Rhylthyme.renderTimeline(container, program) themselves.
 const TimelineRender = require("../static/js/timeline-render.js");
 const Schedule = require("./schedule.js");
+const Labmcp = require("./labmcp.js");
 const Prompts = require("./prompts.js");
 const Analytics = require("./analytics.js");
 const OAuth = require("./oauth.js");
@@ -1532,6 +1533,9 @@ function registerVisualizeSchedule(server, vertical) {
     async ({ program, allowInvalid }) => {
       program = withProgramDefaults(program);
       const v = Schedule.validateProgram(program);
+      // LabMCP steps that end on a reply carry their estimate (flagged), so
+      // the live timeline times them as analyze_schedule does
+      program = Labmcp.withEstimates(program);
       if (!v.valid && !allowInvalid) {
         return inputError(
           "Not published — the program has validation errors. Fix them and call visualize_schedule again " +
