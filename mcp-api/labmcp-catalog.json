@@ -1,4 +1,135 @@
 {
+ "compat": {
+  "labmcp-opentrons": {
+   "cancel": {
+    "calls": "stop_run",
+    "description": "galago-compatible: stop_run",
+    "inputSchema": {
+     "additionalProperties": false,
+     "properties": {},
+     "type": "object"
+    },
+    "kind": "safety"
+   },
+   "pause": {
+    "calls": "pause_run",
+    "description": "galago-compatible: pause_run",
+    "inputSchema": {
+     "additionalProperties": false,
+     "properties": {},
+     "type": "object"
+    },
+    "kind": "safety"
+   },
+   "resume": {
+    "calls": "resume_run",
+    "description": "galago-compatible: resume_run",
+    "inputSchema": {
+     "additionalProperties": false,
+     "properties": {},
+     "type": "object"
+    },
+    "kind": "hazard"
+   },
+   "run_program": {
+    "description": "galago-compatible: upload script_content as a protocol, start a run of it and wait until it ends (upload_protocol, start_run, get_run_status). The deck must match the protocol.",
+    "estimateSeconds": 600,
+    "inputSchema": {
+     "additionalProperties": false,
+     "properties": {
+      "script_content": {
+       "description": "The Opentrons Python protocol",
+       "minLength": 1,
+       "type": "string"
+      },
+      "variables": {
+       "description": "Not supported by LabMCP: leave empty",
+       "maxProperties": 0,
+       "type": "object"
+      }
+     },
+     "required": [
+      "script_content"
+     ],
+     "type": "object"
+    },
+    "kind": "hazard"
+   }
+  }
+ },
+ "limitTargets": {
+  "labmcp-alicat": {
+   "max_series_duration_s": {
+    "log_flow_series": "@series"
+   }
+  },
+  "labmcp-atlas-ezo": {
+   "max_series_duration_s": {
+    "log_series": "@series"
+   }
+  },
+  "labmcp-ble-health": {
+   "max_record_duration_s": {
+    "read_pulse_oximetry": "duration_s",
+    "record_heart_rate": "duration_s"
+   },
+   "max_wait_s": {
+    "read_temperature": "timeout_s",
+    "read_weight": "timeout_s"
+   }
+  },
+  "labmcp-ika": {
+   "max_wait_s": {
+    "wait_for_temperature": "timeout_s"
+   }
+  },
+  "labmcp-julabo": {
+   "max_wait_s": {
+    "wait_for_temperature": "timeout_s"
+   }
+  },
+  "labmcp-lakeshore": {
+   "max_wait_s": {
+    "wait_for_stable_temperature": "timeout_s"
+   }
+  },
+  "labmcp-mettler-toledo": {
+   "max_series_duration_s": {
+    "log_weight_series": "@series"
+   }
+  },
+  "labmcp-palmsens": {
+   "max_duration_s": {
+    "run_chronoamperometry": "run_time_s"
+   }
+  },
+  "labmcp-sartorius": {
+   "max_series_duration_s": {
+    "log_weight_series": "@series"
+   }
+  },
+  "labmcp-scpi": {
+   "max_operation_wait_s": {
+    "wait_operation_complete": "timeout_s"
+   }
+  },
+  "labmcp-sila2": {
+   "max_command_wait_s": {
+    "call_command": "wait_s"
+   },
+   "max_discovery_s": {
+    "discover_servers": "timeout_s"
+   },
+   "max_subscription_duration_s": {
+    "subscribe_property": "duration_s"
+   }
+  },
+  "labmcp-thorlabs-pm": {
+   "max_series_duration_s": {
+    "log_power_series": "@series"
+   }
+  }
+ },
  "packages": {
   "labmcp-alicat": {
    "limits": {

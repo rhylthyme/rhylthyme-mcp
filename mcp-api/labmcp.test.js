@@ -21,6 +21,14 @@ test("problems and estimates match rhylthyme_labmcp word for word", () => {
   }
 });
 
+test("pump timing checks match rhylthyme_labmcp word for word", () => {
+  assert.ok(CASES.timing.some((c) => c.problems.length));
+  for (const c of CASES.timing) {
+    assert.deepEqual(L.timingProblems(c.package, c.command, c.params, c.phase, c.stepSeconds), c.problems,
+      `${c.package}.${c.command} ${c.phase} ${c.stepSeconds}`);
+  }
+});
+
 test("the catalogue carries LabMCP's attribution", () => {
   assert.equal(L.CATALOG.source.license, "Apache-2.0");
   assert.match(L.CATALOG.source.attribution, /K-Dense/);

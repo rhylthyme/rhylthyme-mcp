@@ -24,11 +24,15 @@ const CATALOG = require("./labmcp-catalog.json");
 
 const PREFIX = "labmcp-";
 const DEFAULT_SECONDS = 10;
+// [volume, rate, seconds per rate unit of time]: volume / rate * factor
+const DOSES = [["volume_ml", "rate_ml_min", 60], ["volume_ul", "flow_ul_s", 1]];
 const SERIES_COUNTS = ["count", "timepoints"];
+// Tools that reply as soon as they start acting, before the work is done
+const RETURNS_EARLY_TOOLS = new Set(["labmcp-new-era infuse", "labmcp-new-era withdraw"]);
 const SERIES_INTERVALS = ["interval_s"];
 const RUN_LENGTHS = ["duration_s", "run_time_s"];
 const SETTLE = ["equilibration_s"];
-const TIMEOUTS = ["timeout_s"];
+const TIMEOUTS = ["timeout_s", "wait_s"];
 
 function _isObj(v) { return v !== null && typeof v === "object" && !Array.isArray(v); }
 function _isNum(v) { return typeof v === "number" && Number.isFinite(v); }
@@ -190,25 +194,76 @@ function schemaProblems(schema, params) {
 
 // --- The catalogue -------------------------------------------------------
 
+// A catalogued server, with the galago commands it can stand in for
+// (catalogue `compat`, from rhylthyme_labmcp/compat.py) among its tools.
 function serverEntry(pkg) {
   const entry = CATALOG.packages[pkg];
-  return entry && !entry.error ? entry : null;
+  if (!entry || entry.error) return null;
+  const extra = (CATALOG.compat || {})[pkg];
+  if (!extra) return entry;
+  const tools = Object.assign({}, entry.tools || {});
+  for (const [command, spec] of Object.entries(extra)) {
+    const tool = {};
+    for (const k of ["kind", "description", "inputSchema"]) if (k in spec) tool[k] = spec[k];
+    tools[command] = Object.assign(tool, { compat: true });
+  }
+  return Object.assign({}, entry, { tools });
 }
 
-function _limitProblems(pkg, params) {
+// Params with the tool's schema defaults filled in, and which were defaulted.
+function _withDefaults(pkg, command, params) {
+  const merged = Object.assign({}, params || {});
+  const defaulted = new Set();
+  const spec = ((serverEntry(pkg) || {}).tools || {})[command] || {};
+  for (const [name, prop] of Object.entries(((spec.inputSchema || {}).properties) || {})) {
+    if (!(name in merged) && _isObj(prop) && "default" in prop) {
+      merged[name] = prop.default;
+      defaulted.add(name);
+    }
+  }
+  return [merged, defaulted];
+}
+
+const _isNumber = (v) => typeof v === "number";
+
+// [limit, what, value] for every limit this call's params meet, as
+// rhylthyme_labmcp.checks._limited_values (catalogue limitTargets).
+function _limitedValues(pkg, command, params) {
+  const out = [];
+  for (const name of Object.keys((serverEntry(pkg) || {}).limits || {})) {
+    const match = /^(max|min)_(.+)$/.exec(name);
+    if (match && Object.prototype.hasOwnProperty.call(params, match[2]) && _isNumber(params[match[2]])) {
+      out.push([name, match[2], params[match[2]]]);
+    }
+  }
+  const targets = (CATALOG.limitTargets || {})[pkg] || {};
+  if (Object.values(targets).some((byTool) => command in byTool)) {
+    const [merged] = _withDefaults(pkg, command, params);
+    for (const [name, byTool] of Object.entries(targets)) {
+      const target = byTool[command];
+      if (target === "@series") {
+        if (_isNumber(merged.count) && _isNumber(merged.interval_s)) {
+          out.push([name, "series (count - 1) × interval_s", (merged.count - 1) * merged.interval_s]);
+        }
+      } else if (target !== undefined && _isNumber(merged[target])) {
+        out.push([name, target, merged[target]]);
+      }
+    }
+  }
+  return out;
+}
+
+function _limitProblems(pkg, command, params) {
   const problems = [];
   const limits = (serverEntry(pkg) || {}).limits || {};
-  for (const [name, limit] of Object.entries(limits)) {
-    if (!_isNum(limit.default)) continue;
-    const match = /^(max|min)_(.+)$/.exec(name);
-    if (!match || !Object.prototype.hasOwnProperty.call(params, match[2])) continue;
-    const value = params[match[2]];
-    if (!_isNum(value)) continue;
+  for (const [name, what, value] of _limitedValues(pkg, command, params)) {
+    const limit = limits[name];
+    if (!limit || !_isNum(limit.default)) continue;
     const kind = limit.kind || "max";
     const over = kind === "max" ? value > limit.default : value < limit.default;
     if (over) {
       const unit = limit.unit ? " " + limit.unit : "";
-      problems.push(`${match[2]}=${fmtG(value)} is ${kind === "max" ? "above" : "below"} the server's default limit ${name}=${fmtG(limit.default)}${unit}`);
+      problems.push(`${what}=${fmtG(value)} is ${kind === "max" ? "above" : "below"} the server's default limit ${name}=${fmtG(limit.default)}${unit}`);
     }
   }
   return problems;
@@ -224,7 +279,7 @@ function callProblems(pkg, command, params) {
     return [["instrument_invalid_command", `${pkg} has no tool ${pyRepr(command)} (tools: ${known})`]];
   }
   const problems = schemaProblems(spec.inputSchema || {}, params).map((p) => ["instrument_invalid_command", p]);
-  if (_isObj(params)) _limitProblems(pkg, params).forEach((p) => problems.push(["instrument_over_limit", p]));
+  if (_isObj(params)) _limitProblems(pkg, command, params).forEach((p) => problems.push(["instrument_over_limit", p]));
   return problems;
 }
 
@@ -239,20 +294,19 @@ function _first(params, names) {
 }
 
 function estimateCall(pkg, command, params) {
-  const merged = Object.assign({}, params || {});
-  const defaulted = new Set();
-  const spec = ((serverEntry(pkg) || {}).tools || {})[command] || {};
-  for (const [name, prop] of Object.entries(((spec.inputSchema || {}).properties) || {})) {
-    if (!(name in merged) && _isObj(prop) && "default" in prop) {
-      merged[name] = prop.default;
-      defaulted.add(name);
-    }
-  }
+  const [merged, defaulted] = _withDefaults(pkg, command, params);
   const detail = (...names) => {
     const used = names.map((n) => `params.${n}`);
     if (names.some((n) => defaulted.has(n))) used.push("tool defaults");
     return used.join(", ");
   };
+  for (const [volumeKey, rateKey, factor] of DOSES) {
+    const volume = merged[volumeKey];
+    const rate = merged[rateKey];
+    if (typeof volume === "number" && volume >= 0 && typeof rate === "number" && rate > 0) {
+      return { seconds: (volume / rate) * factor, source: "params", detail: detail(volumeKey, rateKey) };
+    }
+  }
   const count = _first(merged, SERIES_COUNTS);
   const interval = _first(merged, SERIES_INTERVALS);
   if (count && interval && count[1] >= 1) {
@@ -268,7 +322,48 @@ function estimateCall(pkg, command, params) {
   if (timeout && timeout[1] > 0) {
     return { seconds: timeout[1], source: "params", detail: detail(timeout[0]) + " (an upper bound)" };
   }
+  const typical = (((CATALOG.compat || {})[pkg] || {})[command] || {}).estimateSeconds;
+  if (typical) return { seconds: typical, source: "default", detail: "" };
   return { seconds: DEFAULT_SECONDS, source: "default", detail: "" };
+}
+
+// How long a dose call pumps (volume / rate), or null if it is not one.
+function doseSeconds(pkg, command, params) {
+  const found = estimateCall(pkg, command, params);
+  const first = found.detail.split(",")[0];
+  return found.source === "params" && DOSES.some(([v]) => first === `params.${v}`) ? found.seconds : null;
+}
+
+// [[code, problem, severity]] about when a call's work ends, as
+// rhylthyme_labmcp.checks.timing_problems.
+function timingProblems(pkg, command, params, phase, stepSeconds) {
+  if (!_isObj(params)) return [];
+  const dose = doseSeconds(pkg, command, params);
+  const takes = dose !== null ? ` (it takes ${fmtG(dose)} s)` : "";
+  if (RETURNS_EARLY_TOOLS.has(`${pkg} ${command}`) && (phase === "call" || phase === "until")) {
+    return [["instrument_returns_early",
+      `replies as soon as it starts, so the step would end before the work is done${takes}; send it as a start action and give the step a duration`,
+      "error"]];
+  }
+  if (phase === "start" && dose !== null && stepSeconds !== null && stepSeconds < dose) {
+    return [["instrument_dose_outlasts_step",
+      `the dose takes ${fmtG(dose)} s but the step lasts ${fmtG(stepSeconds)} s; its end actions and next steps would start while the pump still runs`,
+      "warning"]];
+  }
+  return [];
+}
+
+// The longest a step can run on its own clock, or null if open-ended.
+function _stepSeconds(step) {
+  const { parseSeconds } = require("../static/js/timeline-render.js");
+  const d = step.duration;
+  if (d === undefined || d === null) return null;
+  if (_isObj(d)) {
+    if (d.type === "indefinite") return null;
+    const v = d.maxSeconds !== undefined ? d.maxSeconds : d.seconds;
+    return v === undefined ? null : Math.floor(parseSeconds(v));
+  }
+  return Math.floor(parseSeconds(d));
 }
 
 // --- Programs ----------------------------------------------------------------
@@ -304,11 +399,12 @@ function instrumentFindings(program) {
           });
           continue;
         }
+        const about = `${prefix}: ${call.tool} (${inst.toolType}) ${call.command}`;
         for (const [code, problem] of callProblems(inst.toolType, call.command, call.params)) {
-          out.push({
-            severity: "error", code, where, fix: null,
-            message: `${prefix}: ${call.tool} (${inst.toolType}) ${call.command}: ${problem}`,
-          });
+          out.push({ severity: "error", code, where, fix: null, message: `${about}: ${problem}` });
+        }
+        for (const [code, problem, severity] of timingProblems(inst.toolType, call.command, call.params, call.phase, _stepSeconds(step))) {
+          out.push({ severity, code, where, fix: null, message: `${about}: ${problem}` });
         }
       }
     }
@@ -349,6 +445,6 @@ function withEstimates(program) {
 }
 
 module.exports = {
-  CATALOG, DEFAULT_SECONDS, callProblems, estimateCall, fmtG, instrumentFindings,
+  CATALOG, DEFAULT_SECONDS, callProblems, doseSeconds, estimateCall, fmtG, instrumentFindings, timingProblems,
   isLabmcpStep, pyRepr, schemaProblems, serverEntry, stepEstimate, withEstimates,
 };
