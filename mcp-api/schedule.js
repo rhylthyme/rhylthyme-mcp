@@ -260,7 +260,7 @@ function instanceFindings(program) {
 // ---------------------------------------------------------------------
 // Step alerts (package 0.2.3-alpha; the alerts contract §2 rule 1)
 //
-// Twin of src/rhylthyme/alert_checks.py: the same codes, run on the
+// Twin of the rhylthyme package's alert_checks.py: the same codes, run on the
 // unexpanded program so each authored step is reported once. Alert
 // offsets are signed ("-2m" = two minutes before the anchor).
 // ---------------------------------------------------------------------

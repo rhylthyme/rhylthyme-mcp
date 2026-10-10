@@ -926,7 +926,7 @@ test("list_public_runs hashes a program, summarises the contributed runs and nee
   };
   // Pinned so this is a parity check, not a tautology: the same value comes out
   // of `node rhylthyme-timeline/tools/hash-program.js`, of the element player
-  // (Rhylthyme.programVersion) and of rhylthyme_cli_runner.history.hash.
+  // (Rhylthyme.programVersion) and of rhylthyme.history.hash.
   const hash = "sha256:25251ee76507035b7ef388b2ec2de0995a8eddffa8e6be31ab17809f81e17e98";
 
   const realFetch = global.fetch;

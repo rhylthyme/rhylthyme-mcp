@@ -59,13 +59,13 @@ Then push on it: "add a third person", "we only have 20 minutes", "swap the
 rope for burpees". The assistant edits the program and the server checks it
 again.
 
-## This repository and rhylthyme-cli-runner
+## This repository and rhylthyme
 
 Two repositories do related things and are easy to confuse. This one is the
-**server an AI assistant talks to**. [rhylthyme-cli-runner](https://github.com/rhylthyme/rhylthyme-cli-runner)
-is the **command a person types**.
+**server an AI assistant talks to**. [rhylthyme](https://github.com/rhylthyme/rhylthyme)
+(formerly rhylthyme-cli-runner) is the **command a person types**.
 
-| | [rhylthyme-mcp](https://github.com/rhylthyme/rhylthyme-mcp) | [rhylthyme-cli-runner](https://github.com/rhylthyme/rhylthyme-cli-runner) |
+| | [rhylthyme-mcp](https://github.com/rhylthyme/rhylthyme-mcp) | [rhylthyme](https://github.com/rhylthyme/rhylthyme) |
 |---|---|---|
 | What it is | The MCP **server**: the tools an AI assistant calls | A command-line **program**: the `rhylthyme` command |
 | Who uses it | Claude, ChatGPT, Cursor or any MCP client, on a person's behalf | A person at a terminal, a script, or CI |
@@ -88,12 +88,13 @@ touch the network. Each has its own validator for the same program schema
 published.
 
 Use this repository to connect an assistant, to read or self-host the server,
-or to change a tool. Use rhylthyme-cli-runner if you have a program file and a
+or to change a tool. Use rhylthyme if you have a program file and a
 terminal, want timers in the terminal, or keep run records.
 
 Two names to keep apart: `rhylthyme-mcp` on PyPI is this server's stdio bridge
-(command `rhylthyme-mcp`, source in [`python/`](python)); `rhylthyme-cli-runner`
-on PyPI is the command-line tool (command `rhylthyme`). The program format
+(command `rhylthyme-mcp`, source in [`python/`](python)); `rhylthyme`
+on PyPI is the command-line tool (command `rhylthyme`; it was published as
+`rhylthyme-cli-runner` before 0.5.0). The program format
 itself is defined in [rhylthyme-spec](https://github.com/rhylthyme/rhylthyme-spec),
 with examples in [rhylthyme-examples](https://github.com/rhylthyme/rhylthyme-examples).
 
@@ -345,7 +346,7 @@ those still depend on the hosted service. The PNG preview route
 - `static/schema/`, `static/examples/`: the resources
 - `src/index.js`: standalone HTTP runner
 - `mcp-api/server.json`: MCP registry manifest
-- `.claude-plugin/marketplace.json`, `plugins/rhylthyme/`: the Claude plugin marketplace and plugin (`claude plugin validate .`); the skill in it is a checked copy of `rhylthyme-cli-runner/skills/rhylthyme`
+- `.claude-plugin/marketplace.json`, `plugins/rhylthyme/`: the Claude plugin marketplace and plugin (`claude plugin validate .`); the skill in it is a checked copy of `skills/rhylthyme` in [rhylthyme](https://github.com/rhylthyme/rhylthyme)
 - `python/`: the `rhylthyme-mcp` PyPI package, a stdio bridge to the hosted server (`cd python && PYTHONPATH=src pytest tests`)
 
 ## Known limitations

@@ -1,6 +1,6 @@
 // Execution history helpers for the Rhylthyme MCP server.
 //
-// The JavaScript twin of rhylthyme-cli-runner/src/rhylthyme_cli_runner/history/
+// The JavaScript twin of rhylthyme-cli-runner/src/rhylthyme/history/
 // {usable,report,predict}.py. Two runtimes record runs (the terminal runner
 // and the browser player) and two languages read them back, so the rule that
 // decides which runs and steps are *measurements* has to be the same rule on
@@ -190,7 +190,7 @@ function durationStats(values) {
 //                 executor decides this step's length -> no number.
 //
 // The Python twin is rhylthyme_server/rhylthyme/predict.py (copied verbatim to
-// rhylthyme_cli_runner/history/predict.py); the parity fixture is
+// rhylthyme/history/predict.py); the parity fixture is
 // rhylthyme-cli-runner/tests/fixtures/history/predict-cases.json.
 
 const DEFAULT_MIN_IDENTICAL = 3;

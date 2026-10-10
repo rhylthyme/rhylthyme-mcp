@@ -6,7 +6,7 @@
 //
 // One source of truth: `index.js` renders `plan_schedule` from these
 // templates, `rhylthyme://guide/extraction` serves EXTRACTION_GUIDE, and
-// the evaluation harness in rhylthyme-cli-runner keeps byte-identical
+// the evaluation harness in rhylthyme keeps byte-identical
 // Python copies (`eval/patterns/four_turn.py`, checked by a parity test)
 // so the prompt under test is the prompt that ships. This file is
 // byte-copied to rhylthyme-mcp/mcp-api/prompts.js; see

@@ -182,8 +182,8 @@ The tool wraps `POST /api/mcp/calibrate` (sign-in required), which is
 `rhylthyme_server.rhylthyme.calibrate` plus the I/O: it loads the
 caller's `program_runs` rows when the client sent no `history`, and its
 `accept` branch returns the calibrated program without saving it. That
-module is a *port* of `rhylthyme_cli_runner.history.calibrate` —
-rhylthyme-server must not import rhylthyme-cli-runner — pinned to it by
+module is a *port* of `rhylthyme.history.calibrate` —
+rhylthyme-server must not depend on the `rhylthyme` package — pinned to it by
 `rhylthyme-server/tests/fixtures/calibrate/thanksgiving-proposal.json`,
 proposals the CLI produced for the Thanksgiving example that
 `tests/test_calibrate_server.py` replays here.
@@ -546,7 +546,7 @@ When adding a tool: put the short text in `SHORT`, the long text in
 
 The templates, their slots and the renderer live in
 `mcp-api/prompts.js`; `prompts.test.js` covers them, and the evaluation
-harness in `rhylthyme-cli-runner` keeps parity-checked Python copies so
+harness in `rhylthyme` keeps parity-checked Python copies so
 the prompt it measures is the prompt that ships.
 
 The server also sends `instructions` at `initialize` describing the
@@ -709,7 +709,7 @@ Set `MCP_ALERTS_DISABLED=1` to turn alerts off. The error message stays in
 the log and the alert; it is never written to `mcp_events`.
 
 To check the server end to end, run `rhylthyme mcp-test` (from
-`rhylthyme-cli-runner`); add `--publish` to include a real share.
+the `rhylthyme` package); add `--publish` to include a real share.
 
 The lab, events and gym catalogs are seeded from `rhylthyme-examples` by
 `scripts/seed_vertical_catalog.py` (idempotent; `--remove` undoes it).
