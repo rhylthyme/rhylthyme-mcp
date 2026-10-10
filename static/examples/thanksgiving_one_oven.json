@@ -25,6 +25,9 @@
         {
           "stepId": "turkey-roast",
           "name": "Roast until 74°C",
+          "alerts": [
+            {"event": "start", "offsetSeconds": "2h", "message": "Start probing the thickest part of the thigh: pull the turkey at 74°C"}
+          ],
           "task": "oven",
           "duration": {
             "type": "indefinite",
@@ -83,6 +86,9 @@
         {
           "stepId": "stuffing-bake",
           "name": "Bake stuffing",
+          "alerts": [
+            {"event": "end", "message": "Stuffing is done: take it out of the oven"}
+          ],
           "task": "oven",
           "duration": {
             "type": "fixed",
@@ -116,6 +122,9 @@
         {
           "stepId": "potatoes-boil",
           "name": "Boil until tender",
+          "alerts": [
+            {"event": "end", "offsetSeconds": "-3m", "message": "Test the potatoes with a fork: drain as soon as they are tender"}
+          ],
           "task": "stove",
           "duration": {
             "type": "variable",
