@@ -258,6 +258,130 @@ function instanceFindings(program) {
 }
 
 // ---------------------------------------------------------------------
+// Step alerts (package 0.2.3-alpha; the alerts contract §2 rule 1)
+//
+// Twin of src/rhylthyme/alert_checks.py: the same codes, run on the
+// unexpanded program so each authored step is reported once. Alert
+// offsets are signed ("-2m" = two minutes before the anchor).
+// ---------------------------------------------------------------------
+
+const ALERT_KEYS = new Set(["event", "offsetSeconds", "message", "level"]);
+const ALERT_NUMBER = "\\d+(?:\\.\\d+)?";
+const ALERT_OFFSET_RE = new RegExp(
+  `^[+-]?\\s*(?:${ALERT_NUMBER}|(?:${ALERT_NUMBER}\\s*(?:hours?|hrs?|h|minutes?|mins?|m|seconds?|secs?|s)\\s*)+)$`, "i");
+
+// Signed seconds of an alert offset (missing = 0), or null when it is
+// neither a finite number nor a whole time string; parseSeconds alone is
+// lenient and would read "soon" as 0.
+function parseAlertOffset(value) {
+  if (value === undefined || value === null) return 0;
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string") return null;
+  const s = value.trim();
+  return s && ALERT_OFFSET_RE.test(s) ? parseSeconds(s) : null;
+}
+
+// Compact duration for alert text: "45 s", "2 min", "1 h 5 min".
+function _fmtAlertDur(sec) {
+  const s = Math.round(Math.abs(sec || 0));
+  if (s < 60) return `${s} s`;
+  const h = Math.floor(s / 3600), m = Math.floor((s % 3600) / 60);
+  if (!h) return `${m} min`;
+  return m ? `${h} h ${m} min` : `${h} h`;
+}
+
+// The default body when an alert has no message (English; the web page
+// localizes its own).
+function alertDefaultMessage(event, offset) {
+  const d = _fmtAlertDur(offset);
+  if (event === "start") return offset < 0 ? `Starts in ${d}` : offset > 0 ? `Started ${d} ago` : "Starting now";
+  return offset < 0 ? `Ends in ${d}` : offset > 0 ? `Ended ${d} ago` : "Done";
+}
+
+function alertFindings(program) {
+  const out = [];
+  const push = (severity, code, message, where, fix) => out.push({ severity, code, message, where, fix });
+  const tracks = Array.isArray(program && program.tracks) ? program.tracks : [];
+  tracks.forEach((t) => {
+    if (!_isObj(t)) return;
+    (Array.isArray(t.steps) ? t.steps : []).forEach((step) => {
+      if (!_isObj(step) || step.alerts === undefined) return;
+      const where = `step:${step.stepId}`;
+      if (!Array.isArray(step.alerts) || !step.alerts.length) {
+        push("error", "bad_alert", `Step "${step.stepId}" alerts must be a non-empty array.`, where,
+          "Give alerts as [{\"event\": \"end\", \"offsetSeconds\": \"-2m\"}], or remove the key.");
+        return;
+      }
+      const trig = _isObj(step.startTrigger) ? step.startTrigger : {};
+      const indefinite = _isObj(step.duration) && step.duration.type === "indefinite";
+      step.alerts.forEach((a, i) => {
+        const label = `Alert ${i} on step "${step.stepId}"`;
+        if (!_isObj(a)) { push("error", "bad_alert", `${label} is not an object.`, where, "Each alert is {event, offsetSeconds?, message?, level?}."); return; }
+        const extra = Object.keys(a).filter((k) => !ALERT_KEYS.has(k));
+        if (a.event !== "start" && a.event !== "end") {
+          push("error", "bad_alert", `${label} needs event "start" or "end".`, where, "Set event to \"start\" or \"end\" of this step.");
+        }
+        if (extra.length) push("error", "bad_alert", `${label} has unknown key(s) ${extra.join(", ")}.`, where, "Alerts take only event, offsetSeconds, message and level.");
+        if (a.level !== undefined && a.level !== "notice" && a.level !== "alarm") {
+          push("error", "bad_alert", `${label} level must be "notice" or "alarm".`, where, "Use level \"notice\" (default) or \"alarm\".");
+        }
+        if (a.message !== undefined && (typeof a.message !== "string" || !a.message.length || a.message.length > 200)) {
+          push("error", "bad_alert", `${label} message must be 1-200 characters of text.`, where, "Shorten the message, or omit it for a default (\"Ends in 2 min\").");
+        }
+        const off = parseAlertOffset(a.offsetSeconds);
+        if (off === null) {
+          push("error", "E_ALERT_BAD_OFFSET", `${label} has offsetSeconds ${JSON.stringify(a.offsetSeconds)}, which is not a number of seconds or a time string.`, where,
+            "Use seconds (-120) or a signed time string (\"-2m\", \"30s\", \"1h30m\").");
+          return;
+        }
+        if (off >= 0) return;
+        if (a.event === "start" && trig.type === "manual") {
+          push("warning", "W_ALERT_BEFORE_MANUAL_START", `${label} fires ${_fmtAlertDur(off)} before the step starts, but the step starts manually, so its start cannot be predicted and the alert never fires.`, where,
+            "Anchor it on the end of the step before, or use offsetSeconds >= 0.");
+        } else if (a.event === "start" && (trig.type === "programStart" || trig.type === "programStartOffset")) {
+          const start = trig.type === "programStartOffset" ? (parseAlertOffset(trig.offsetSeconds) || 0) : 0;
+          if (start + off < 0) {
+            push("warning", "W_ALERT_BEFORE_PROGRAM_START", `${label} fires ${_fmtAlertDur(off)} before the step starts, which is before the program starts; it never fires.`, where,
+              "Shorten the offset, or delay the step with programStartOffset.");
+          }
+        } else if (a.event === "end" && indefinite) {
+          push("warning", "W_ALERT_BEFORE_INDEFINITE_END", `${label} fires ${_fmtAlertDur(off)} before the step ends, but the step is indefinite and has no projected end, so the alert never fires.`, where,
+            "Use offsetSeconds >= 0 on event \"end\", or give the step a fixed or variable duration.");
+        }
+      });
+    });
+  });
+  return out;
+}
+
+// The alerts of one (expanded) step that can be placed on the planned
+// timeline: {event, offsetSeconds, atSeconds, message, level} sorted by
+// time. Per the contract, an anchor that is only known once it happens is
+// not projected: the start of a manual step and the end of an indefinite
+// one. Alerts that would fall before the program starts, or whose offset
+// does not parse, are left out too.
+function projectedAlerts(step, timing) {
+  if (!_isObj(step) || !Array.isArray(step.alerts) || !timing) return [];
+  const manual = _isObj(step.startTrigger) && step.startTrigger.type === "manual";
+  const indefinite = _isObj(step.duration) && step.duration.type === "indefinite";
+  const out = [];
+  step.alerts.forEach((a) => {
+    if (!_isObj(a) || (a.event !== "start" && a.event !== "end")) return;
+    const off = parseAlertOffset(a.offsetSeconds);
+    if (off === null) return;
+    if ((a.event === "start" && manual) || (a.event === "end" && indefinite)) return;
+    const at = (a.event === "start" ? timing.start : timing.end) + off;
+    if (at < 0) return;
+    out.push({
+      event: a.event, offsetSeconds: off, atSeconds: at,
+      message: typeof a.message === "string" && a.message ? a.message : alertDefaultMessage(a.event, off),
+      level: a.level === "alarm" ? "alarm" : "notice",
+    });
+  });
+  return out.sort((x, y) => x.atSeconds - y.atSeconds);
+}
+
+// ---------------------------------------------------------------------
 // validateProgram
 // ---------------------------------------------------------------------
 
@@ -282,6 +406,11 @@ function validateProgram(program) {
     if (f.severity === "error") { instanceErrors++; err(f.code, f.message, f.where, f.fix); }
     else if (f.severity === "warning") warn(f.code, f.message, f.where, f.fix);
     else note(f.code, f.message, f.where, f.fix);
+  });
+  // Step alerts, likewise once per authored step.
+  alertFindings(program).forEach((f) => {
+    if (f.severity === "error") err(f.code, f.message, f.where, f.fix);
+    else warn(f.code, f.message, f.where, f.fix);
   });
   // Expand replicates next, as the Python validator does, so ids,
   // overlaps and timings are checked on the program that will run. An
@@ -931,6 +1060,10 @@ function _analyzeCore(program, opts) {
       startAt: wall(t.start), endAt: wall(t.end),
       critical: criticalPath.indexOf(id) !== -1,
       resolved: t.resolved !== false,
+      alerts: projectedAlerts(s, t).map((a) => ({
+        event: a.event, offsetSeconds: a.offsetSeconds, atSeconds: a.atSeconds,
+        at: wall(a.atSeconds), message: a.message, level: a.level,
+      })),
     };
   }).sort((a, b) => a.startSeconds - b.startSeconds || a.name.localeCompare(b.name));
 
@@ -1128,6 +1261,17 @@ function formatAnalysis(a) {
       lines.push(`- \`${g.inFlightOf}\` ×${g.count} through \`${g.task}\`: maxInFlight ${g.maxInFlight}, peak ${g.peakInFlight} at ${_fmtClock(g.peakAtSeconds)} — ${w}`);
     });
   }
+  const alerts = [];
+  a.steps.forEach((s) => (s.alerts || []).forEach((x) => alerts.push(Object.assign({ step: s.name }, x))));
+  if (alerts.length) {
+    alerts.sort((x, y) => x.atSeconds - y.atSeconds);
+    lines.push("", `**Alerts (${alerts.length}):**`);
+    alerts.slice(0, 30).forEach((x) => {
+      const when = x.at ? x.at.replace("T", " ").slice(0, 16) : _fmtClock(x.atSeconds);
+      lines.push(`- ${when} ${x.step}: ${x.message}${x.level === "alarm" ? " (alarm)" : ""}`);
+    });
+    if (alerts.length > 30) lines.push(`- …and ${alerts.length - 30} more`);
+  }
   const slack = a.tracks.filter((t) => t.steps && t.slackBeforeFinishSeconds >= 600);
   if (slack.length) {
     lines.push("", "**Tracks that finish early:** " + slack.map((t) => `${t.name} (${_fmtDur(t.slackBeforeFinishSeconds)} early)`).join(", "));
@@ -1158,6 +1302,10 @@ function formatValidation(v) {
 module.exports = {
   validateProgram,
   instanceFindings,
+  alertFindings,
+  parseAlertOffset,
+  projectedAlerts,
+  alertDefaultMessage,
   expandReplicates,
   analyzeSchedule,
   withDurations,

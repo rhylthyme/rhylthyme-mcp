@@ -304,7 +304,8 @@ test("every invalid/<CODE>.json provokes exactly its declared finding", () => {
   const files = fs.readdirSync(dir).filter((f) => f.endsWith(".json")).sort();
   assert.ok(files.length >= 7, "one negative example per validator code");
   for (const code of ["E_INSTANCES_ON_SINGLE", "E_EACH_WITH_REPLICATES", "E_EACH_COUNT_MISMATCH",
-    "E_INFLIGHT_GT_COUNT", "E_INFLIGHT_NO_CHAIN", "W_UNBARRIERED_CHAIN", "I_IMPLICIT_BARRIER"]) {
+    "E_INFLIGHT_GT_COUNT", "E_INFLIGHT_NO_CHAIN", "W_UNBARRIERED_CHAIN", "I_IMPLICIT_BARRIER",
+    "W_ALERT_BEFORE_MANUAL_START", "W_ALERT_BEFORE_INDEFINITE_END", "W_ALERT_BEFORE_PROGRAM_START", "E_ALERT_BAD_OFFSET"]) {
     assert.ok(files.includes(`${code}.json`), `invalid/${code}.json is missing`);
   }
   for (const f of files) {
@@ -766,4 +767,140 @@ test("one prediction covers every replicate instance, and the expansion survives
   assert.equal(a.inFlight.length, plain.inFlight.length);
   assert.equal(a.inFlight[0].inFlightOf, "bake");
   assert.ok(a.makespanSeconds > plain.makespanSeconds, "cooling twice as long costs time");
+});
+
+// ---------------------------------------------------------------------
+// Step alerts (package 0.2.3-alpha; alerts contract §2)
+// ---------------------------------------------------------------------
+
+function alertProgram() {
+  return {
+    schemaVersion: "0.3.0-alpha",
+    programId: "alerts",
+    name: "Alerts",
+    tracks: [
+      { trackId: "oven", name: "Oven", steps: [
+        fixed("preheat", 600, { type: "programStart" }, { alerts: [
+          { event: "end", offsetSeconds: "-2m", message: "Get the tray ready" },
+          { event: "end" },
+        ] }),
+        fixed("bake", "20m", { type: "afterStep", stepId: "preheat" }, { alerts: [
+          { event: "start", offsetSeconds: -60 },
+          { event: "end", offsetSeconds: 0, level: "alarm" },
+        ] }),
+      ] },
+      { trackId: "cook", name: "Cook", steps: [
+        fixed("taste", 60, { type: "manual" }, { alerts: [{ event: "start", offsetSeconds: "30s" }] }),
+        Object.assign(fixed("rest", 0, { type: "afterStep", stepId: "taste" }), {
+          duration: { type: "indefinite" },
+          alerts: [{ event: "end", offsetSeconds: "5m" }],
+        }),
+      ] },
+    ],
+    resourceConstraints: [{ task: "prep", maxConcurrent: 4 }],
+  };
+}
+
+test("parseAlertOffset keeps the sign and rejects what parseSeconds would read as 0", () => {
+  assert.equal(S.parseAlertOffset(undefined), 0);
+  assert.equal(S.parseAlertOffset(-90), -90);
+  assert.equal(S.parseAlertOffset("-2m"), -120);
+  assert.equal(S.parseAlertOffset("+30s"), 30);
+  assert.equal(S.parseAlertOffset("1h30m"), 5400);
+  assert.equal(S.parseAlertOffset("-1h 5min"), -3900);
+  assert.equal(S.parseAlertOffset("-7.5"), -7.5);
+  for (const bad of ["", "soon", "5x", "1h30", "--2m", true, [], Infinity]) {
+    assert.equal(S.parseAlertOffset(bad), null, JSON.stringify(bad));
+  }
+});
+
+test("projectable alerts validate clean", () => {
+  const v = S.validateProgram(alertProgram());
+  assert.equal(v.valid, true, JSON.stringify(v.errors));
+  assert.deepEqual(v.warnings.filter((w) => /ALERT|alert/.test(w.code)), []);
+});
+
+test("unprojectable alerts warn with the contract codes; bad offsets are errors", () => {
+  const p = alertProgram();
+  p.tracks[1].steps[0].alerts.push({ event: "start", offsetSeconds: "-1m" });
+  p.tracks[1].steps[1].alerts.push({ event: "end", offsetSeconds: -30 });
+  p.tracks[0].steps[0].alerts.push({ event: "start", offsetSeconds: "-10s" });
+  let v = S.validateProgram(p);
+  assert.equal(v.valid, true, JSON.stringify(v.errors));
+  assert.deepEqual(
+    v.warnings.filter((w) => w.code.includes("ALERT")).map((w) => [w.code, w.where]),
+    [
+      ["W_ALERT_BEFORE_PROGRAM_START", "step:preheat"],
+      ["W_ALERT_BEFORE_MANUAL_START", "step:taste"],
+      ["W_ALERT_BEFORE_INDEFINITE_END", "step:rest"],
+    ],
+  );
+  assert.ok(v.warnings.every((w) => w.fix && w.message));
+
+  // A programStartOffset longer than the lead time is fine.
+  const late = alertProgram();
+  late.tracks[0].steps[0].startTrigger = { type: "programStartOffset", offsetSeconds: "5m" };
+  late.tracks[0].steps[0].alerts = [{ event: "start", offsetSeconds: "-4m" }];
+  assert.deepEqual(S.validateProgram(late).warnings.filter((w) => w.code.includes("ALERT")), []);
+  late.tracks[0].steps[0].alerts = [{ event: "start", offsetSeconds: "-6m" }];
+  assert.deepEqual(S.validateProgram(late).warnings.filter((w) => w.code.includes("ALERT")).map((w) => w.code),
+    ["W_ALERT_BEFORE_PROGRAM_START"]);
+
+  const bad = alertProgram();
+  bad.tracks[0].steps[1].alerts[0].offsetSeconds = "in a bit";
+  v = S.validateProgram(bad);
+  assert.equal(v.valid, false);
+  assert.deepEqual(v.errors.map((e) => [e.code, e.where]), [["E_ALERT_BAD_OFFSET", "step:bake"]]);
+});
+
+test("malformed alerts are reported (the JS validator has no schema pass)", () => {
+  for (const alerts of [[], "soon", [{ event: "middle" }], [{ event: "end", level: "siren" }],
+    [{ event: "end", sound: "chime" }], [{ event: "start", message: "" }], [{ event: "start", message: "x".repeat(201) }]]) {
+    const p = alertProgram();
+    p.tracks[0].steps[0].alerts = alerts;
+    const v = S.validateProgram(p);
+    assert.equal(v.valid, false, JSON.stringify(alerts));
+    assert.deepEqual(v.errors.map((e) => e.code), ["bad_alert"], JSON.stringify(alerts));
+  }
+});
+
+test("analyzeSchedule places projectable alerts on each step row", () => {
+  const a = S.analyzeSchedule(alertProgram(), { startAt: "2026-10-10T17:00:00Z" });
+  const row = (id) => a.steps.find((s) => s.stepId === id);
+  assert.deepEqual(row("preheat").alerts, [
+    { event: "end", offsetSeconds: -120, atSeconds: 480, at: "2026-10-10T17:08:00.000Z", message: "Get the tray ready", level: "notice" },
+    { event: "end", offsetSeconds: 0, atSeconds: 600, at: "2026-10-10T17:10:00.000Z", message: "Done", level: "notice" },
+  ]);
+  assert.deepEqual(row("bake").alerts.map((x) => [x.atSeconds, x.message, x.level]),
+    [[540, "Starts in 1 min", "notice"], [1800, "Done", "alarm"]]);
+  // Manual start and indefinite end are only known when they happen.
+  assert.deepEqual(row("taste").alerts, []);
+  assert.deepEqual(row("rest").alerts, []);
+  // Without an anchor there is no wall clock.
+  assert.equal(S.analyzeSchedule(alertProgram()).steps.find((s) => s.stepId === "preheat").alerts[0].at, undefined);
+  // Steps with no alerts carry an empty list.
+  assert.ok(S.analyzeSchedule(GOOD).steps.every((s) => Array.isArray(s.alerts) && !s.alerts.length));
+
+  const text = S.formatAnalysis(a);
+  assert.match(text, /\*\*Alerts \(4\):\*\*/);
+  assert.match(text, /2026-10-10 17:08 PREHEAT: Get the tray ready/);
+  assert.match(text, /17:30 BAKE: Done \(alarm\)/);
+});
+
+test("replicated steps alert per instance, with their own times", () => {
+  const p = alertProgram();
+  p.tracks[0].steps[1].replicates = { count: 2, mode: "serial" };
+  const a = S.analyzeSchedule(p);
+  const bakes = a.steps.filter((s) => s.instanceOf === "bake");
+  assert.equal(bakes.length, 2);
+  assert.deepEqual(bakes.map((s) => s.alerts.map((x) => x.atSeconds)), [[540, 1800], [1740, 3000]]);
+});
+
+test("alertDefaultMessage follows the contract wording", () => {
+  assert.equal(S.alertDefaultMessage("start", 0), "Starting now");
+  assert.equal(S.alertDefaultMessage("start", -45), "Starts in 45 s");
+  assert.equal(S.alertDefaultMessage("start", 120), "Started 2 min ago");
+  assert.equal(S.alertDefaultMessage("end", -3900), "Ends in 1 h 5 min");
+  assert.equal(S.alertDefaultMessage("end", 0), "Done");
+  assert.equal(S.alertDefaultMessage("end", 3600), "Ended 1 h ago");
 });

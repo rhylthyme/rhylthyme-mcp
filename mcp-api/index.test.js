@@ -1599,3 +1599,15 @@ test("tool descriptions are self-contained: no other tools, guides or instructio
     }
   }
 });
+
+test("step alerts are documented and show in the visualize itinerary", () => {
+  const instructions = handler._serverInstructions("generic");
+  assert.ok(instructions.includes("`alerts`"), instructions);
+  const p = JSON.parse(JSON.stringify(GOOD));
+  const step = p.tracks[0].steps[0];
+  step.alerts = [{ event: "end", offsetSeconds: "-2m", message: "Nearly there" }];
+  const md = handler._formatProgramSummary(p, "https://kitchen.rhylthyme.com/?share=x", { vertical: "kitchen" });
+  assert.match(md, /alert: Nearly there/);
+  // Accepted by the tool input schema.
+  assert.equal(handler._schemas.Program.safeParse(p).success, true);
+});

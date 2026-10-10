@@ -287,7 +287,7 @@ function serverInstructions(vertical) {
     "- visualize_schedule returns the live timeline URL together with an ASCII Gantt and an itinerary.",
     "- **login** is only needed for the private library (list_my_programs, load_program, save_program) and for imports. Public catalog tools need no token.",
     "",
-    "Authoring rules: stepIds unique across the whole program; steps in one track never overlap (chain with afterStep); every `task` used by a step has a matching resourceConstraint; durations in seconds (numbers) or time strings (\"5m\", \"1h30m\"); repeated work is `replicates` on ONE step with `instances: \"each\"`/`\"all\"` and `maxInFlight`, never copied steps; to make everything finish together, delay short tracks with programStartOffset or afterStep, and pass finishAt to analyze_schedule for wall-clock start times.",
+    "Authoring rules: stepIds unique across the whole program; steps in one track never overlap (chain with afterStep); every `task` used by a step has a matching resourceConstraint; durations in seconds (numbers) or time strings (\"5m\", \"1h30m\"); repeated work is `replicates` on ONE step with `instances: \"each\"`/`\"all\"` and `maxInFlight`, never copied steps; to make everything finish together, delay short tracks with programStartOffset or afterStep, and pass finishAt to analyze_schedule for wall-clock start times; step `alerts` ({event:\"end\", offsetSeconds:\"-2m\", message}) notify the person.",
     "",
     "Authoring from a goal or a source text: run the **plan_schedule** prompt — four turns (read the source back → confirm the program model → extract the steps with the words they came from → assign tracks and triggers). The same four turns are documented in `rhylthyme://guide/extraction` for clients without multi-message prompt support. `rhylthyme://guide/authoring` is the cheat-sheet, `rhylthyme://guide/tools` the long form of each tool, `rhylthyme://schema/program` the full JSON schema, `rhylthyme://examples/*` complete valid programs.",
   ].filter((l) => l !== "").join("\n");
@@ -688,6 +688,13 @@ const Step = z.looseObject({
   }).optional().describe("Branch point: downstream steps with a matching choiceId only run for that option."),
   replicates: Replicates.optional(),
   canAbort: z.boolean().optional(),
+  // Kept loose: validate_program reports malformed alerts with fix hints.
+  alerts: z.array(z.looseObject({
+    event: z.string().describe("\"start\" or \"end\" of this step."),
+    offsetSeconds: z.union([z.number(), z.string()]).optional().describe("Signed: \"-2m\" = two minutes before the event. Default 0."),
+    message: z.string().optional().describe("Plain text shown to the person, 1-200 chars; omit for a default."),
+    level: z.string().optional().describe("\"notice\" (default) or \"alarm\"."),
+  })).optional().describe("Notifications at moments of this step, e.g. [{\"event\":\"end\",\"offsetSeconds\":\"-2m\",\"message\":\"Get the tray ready\"}]."),
 });
 
 const Track = z.looseObject({
@@ -1160,10 +1167,17 @@ function renderItinerary(program) {
         name: s.name || s.stepId,
         track: t.name || "Track",
       });
+      // Step alerts, at the moment they will go off.
+      Schedule.projectedAlerts(s, tim).forEach(a => events.push({
+        start: a.atSeconds,
+        alert: a.message,
+        name: s.name || s.stepId,
+        track: t.name || "Track",
+      }));
     });
   });
   if (!events.length) return "";
-  events.sort((a, b) => a.start - b.start || a.name.localeCompare(b.name));
+  events.sort((a, b) => a.start - b.start || (a.alert ? 1 : 0) - (b.alert ? 1 : 0) || a.name.localeCompare(b.name));
 
   // Compute padding for the time column and track column so the list
   // aligns nicely in monospace.
@@ -1174,6 +1188,7 @@ function renderItinerary(program) {
   events.forEach(e => {
     const time = _fmtClock(e.start).padStart(maxTime, " ");
     const track = ("[" + e.track + "]").padEnd(maxTrack + 2, " ");
+    if (e.alert) { lines.push(`${time} ${track}  alert: ${e.alert}  _(${e.name})_`); return; }
     const dur = _fmtMinutes(e.duration);
     lines.push(`${time} ${track}  ${e.name}  _(${dur})_`);
   });
@@ -1509,7 +1524,12 @@ function registerAnalyzeSchedule(server, vertical) {
       else if (v.warnings.length) parts.push("", Schedule.formatValidation(v));
       // Compact itinerary with wall clock when anchored.
       if (a.wallClock) {
-        const rows = a.steps.slice(0, 60).map((s) => `${s.startAt.replace("T", " ").slice(0, 16)}  ${s.name}  _(${Schedule._fmtDur(s.durationSeconds)}, ${s.trackId})_`);
+        // Step alerts interleave as their own rows at their fire time.
+        const items = a.steps.slice(0, 60).map((s) => ({ t: s.startSeconds, text: `${s.startAt.replace("T", " ").slice(0, 16)}  ${s.name}  _(${Schedule._fmtDur(s.durationSeconds)}, ${s.trackId})_` }));
+        a.steps.slice(0, 60).forEach((s) => (s.alerts || []).forEach((x) => items.push({
+          t: x.atSeconds, text: `${x.at.replace("T", " ").slice(0, 16)}    alert: ${x.message}  _(${s.name})_`,
+        })));
+        const rows = items.sort((x, y) => x.t - y.t).map((x) => x.text);
         parts.push("", "**Wall-clock itinerary:**", "```", ...rows, a.steps.length > 60 ? `…and ${a.steps.length - 60} more` : "", "```");
       }
       return { content: [{ type: "text", text: parts.filter((x) => x !== undefined).join("\n") }], structuredContent: a };
@@ -3000,6 +3020,26 @@ the rotor holds 6" and "three landings, the taxiway holds two".
 | \`E_INFLIGHT_NO_CHAIN\`   | \`maxInFlight\` on a \`serial\` replicate with no \`"each"\` descendants: nothing is ever held back |
 | \`W_UNBARRIERED_CHAIN\`   | warning: an \`"each"\` chain has no \`"all"\` barrier, yet later steps do not wait for it |
 | \`I_IMPLICIT_BARRIER\`    | info: a reference to a replicated step with no \`instances\`; the default \`"all"\` barrier applies. Add \`"all"\` to confirm it, or \`"each"\` if the work is per instance |
+
+## Alerts
+
+A step may carry \`alerts\`: notifications the live runner shows (in-page, and
+as phone notifications in the iOS/Android apps) at a moment of that step.
+
+\`\`\`json
+"alerts": [
+  { "event": "end", "offsetSeconds": "-2m", "message": "Preheat the oven now" },
+  { "event": "start" },
+  { "event": "end", "level": "alarm" }
+]
+\`\`\`
+
+- \`event\` (required): \`"start"\` or \`"end"\` of this step. Alerts never name another step; replicates get a copy per instance.
+- \`offsetSeconds\`: signed, relative to the event; negative = before (\`"-2m"\`), positive = after. Default 0.
+- \`message\`: plain text, 1-200 characters. Leave it out for a default ("Ends in 2 min", "Done").
+- \`level\`: \`"notice"\` (default) or \`"alarm"\` (may ring as a device alarm where the person allows it). Keep alarms for moments that must not be missed.
+- An alert before the start of a \`manual\` step, or before the end of an \`indefinite\` one, cannot be predicted and never fires (\`W_ALERT_BEFORE_MANUAL_START\`, \`W_ALERT_BEFORE_INDEFINITE_END\`); nor can one before the program starts (\`W_ALERT_BEFORE_PROGRAM_START\`). Anchor it on the end of the step before instead. An offset that does not parse is \`E_ALERT_BAD_OFFSET\`.
+- Use alerts for moments the person might miss while doing something else (a timer ending, a step to start soon), not on every step. \`analyze_schedule\` lists each step's planned \`alerts\` with their times.
 
 ## Predicted offsets (experimental)
 

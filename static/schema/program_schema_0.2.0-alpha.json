@@ -311,6 +311,13 @@
                 "instrument": {
                   "$ref": "#/definitions/instrument"
                 },
+                "alerts": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": { "$ref": "#/definitions/alert" },
+                  "$comment": "Each alert is a time:Instant anchored on this step's own time:ProperInterval; alerts never reference another step, and replicate expansion copies them onto every instance",
+                  "description": "Notifications the runner shows the person at moments of this step, e.g. two minutes before it ends (package 0.2.3-alpha)"
+                },
                 "codeBlock": {
                   "type": "object",
                   "description": "Code to execute when the step starts",
@@ -648,6 +655,39 @@
     }
   },
   "definitions": {
+    "alert": {
+      "type": "object",
+      "$comment": "A time:Instant at the step's time:hasBeginning (event=start) or time:hasEnd (event=end), shifted by a time:Duration (offsetSeconds: negative = time:before, positive = time:after the anchor)",
+      "description": "A notification shown to the person at a moment of the step. Before-start alerts on a manual step and before-end alerts on an indefinite step cannot be projected and never fire",
+      "required": ["event"],
+      "additionalProperties": false,
+      "properties": {
+        "event": {
+          "type": "string",
+          "enum": ["start", "end"],
+          "$comment": "Selects the anchoring time:Instant: time:hasBeginning (start) or time:hasEnd (end) of the step",
+          "description": "The step moment the alert is anchored to"
+        },
+        "offsetSeconds": {
+          "type": ["number", "string"],
+          "default": 0,
+          "$comment": "A signed time:Duration from the anchor instant",
+          "description": "Seconds relative to the anchor; negative = before, positive = after (default 0). A number or a signed string with time units (e.g. '-2m', '30s', '1h30m')"
+        },
+        "message": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "description": "Text shown to the person (plain text); when omitted the runner derives one, e.g. 'Ends in 2 min'"
+        },
+        "level": {
+          "type": "string",
+          "enum": ["notice", "alarm"],
+          "default": "notice",
+          "description": "notice (default) or alarm: may escalate to a device alarm where the person enabled alarms; otherwise behaves as notice"
+        }
+      }
+    },
     "instrument": {
       "type": "object",
       "description": "Instrument calls the runner makes for this step through a local workcell file (rhylthyme run --workcell), which maps each tool name to a driver: galago-tools or LabMCP. When the step starts, its start actions are sent in order, then its command or its until call; the step ends when that call replies (never on a timer). A step with neither runs on its own duration, or until the operator ends it. When the step ends, however it ends, its end actions are sent in order. onAbort actions are sent instead if the step fails or the run is aborted.",
