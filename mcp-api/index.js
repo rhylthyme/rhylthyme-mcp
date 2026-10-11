@@ -2365,7 +2365,7 @@ function registerCalibrateProgram(server, vertical) {
 
 const PROGRAM_HASH_RE = /^sha256:[0-9a-f]{64}$/;
 
-// Fourth twin of rhylthyme_cli_runner/history/hash.py, after
+// Fourth twin of rhylthyme/history/hash.py, after
 // rhylthyme-timeline/tools/hash-program.js and the copy inlined in
 // src/element.js. Inlined here for the same reason it is inlined there:
 // this file is byte-mirrored into rhylthyme-mcp and must not import

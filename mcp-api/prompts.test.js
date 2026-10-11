@@ -1,7 +1,7 @@
 // node --test mcp-api/prompts.test.js
 //
 // The four-turn templates and the slot renderer. Pure strings: no SDK, no
-// network. The harness in rhylthyme-cli-runner keeps Python copies of the
+// network. The harness in rhylthyme keeps Python copies of the
 // same templates and a parity test that extracts these exports with node,
 // so a change here fails there until the copies are regenerated.
 "use strict";

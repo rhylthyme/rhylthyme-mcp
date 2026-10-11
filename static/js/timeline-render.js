@@ -680,7 +680,7 @@
   // `<stepId>-r<instance>` for a replicated step and plain `<stepId>`
   // otherwise. Pass the program and the mapping is confirmed against its
   // expanded step ids; without it, `instance > 1` implies the suffix.
-  // Python twin: rhylthyme_cli_runner.history.recorder.runtime_step_id.
+  // Python twin: rhylthyme.history.recorder.runtime_step_id.
 
   function _isRunRecord(x) {
     return !!x && typeof x === 'object' && !x.tracks && Array.isArray(x.steps);
