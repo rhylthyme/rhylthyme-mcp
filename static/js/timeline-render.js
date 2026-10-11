@@ -1,5 +1,5 @@
 /*!
- * Rhylthyme timeline-render v2.0.0-beta.6
+ * Rhylthyme timeline-render v2.0.0-beta.7
  * (c) 2026 Rhylthyme contributors. Released under the Apache License 2.0.
  * Source: https://github.com/rhylthyme/rhylthyme-timeline
  *
@@ -731,6 +731,114 @@
     var resolverOpts = { actual: actualFromRun(record, program, opts) };
     if (typeof opts.now === 'number' && isFinite(opts.now)) resolverOpts.now = opts.now;
     return computeStepTimings(program, resolverOpts);
+  }
+
+  // ---------- Itinerary ---------------------------------------------------
+  //
+  // The plan as a list: one entry per expanded step, in plan order (start
+  // time, then name), with step and track names, the authored step a
+  // replicate instance came from, and, when opts.startAt or opts.finishAt
+  // is given, wall-clock ISO times. The anchoring is analyzeSchedule's
+  // (src/schedule/schedule.js): finishAt wins and works backwards from the
+  // makespan; else startAt. opts.actual / opts.now go to computeStepTimings.
+  // LabMCP steps with no duration are timed here by instrumentEstimate; the
+  // catalogue estimates analyzeSchedule uses live in ./schedule, whose
+  // itinerary() applies them first.
+
+  // An anchor: ISO string, Date or epoch ms (0 included). Absent or
+  // unparseable -> null.
+  function _parseIsoDate(v) {
+    if (v === undefined || v === null || v === '' || typeof v === 'boolean') return null;
+    var d = new Date(v);
+    return isNaN(d.getTime()) ? null : d;
+  }
+
+  // expandReplicates stamps instanceOf / instanceIndex on the copies of a
+  // replicated step, but not on the steps of a replicated track (its
+  // player and run-record ids depend on that). The plan views link those
+  // too: expanded stepId -> [authored stepId, 1-based instance], for every
+  // step of a track with replicates.count (or legacy batch_size) > 1.
+  function _trackInstanceLinks(program) {
+    var links = {};
+    (program && Array.isArray(program.tracks) ? program.tracks : []).forEach(function (t) {
+      if (!t || typeof t !== 'object') return;
+      var n = t.replicates ? (t.replicates.count || 1) : (t.batch_size || 1);
+      if (!(n > 1)) return;
+      (Array.isArray(t.steps) ? t.steps : []).forEach(function (s) {
+        if (!s || typeof s !== 'object' || !s.stepId) return;
+        for (var i = 1; i <= n; i++) links[s.stepId + '-r' + i] = [s.stepId, i];
+      });
+    });
+    return links;
+  }
+
+  // Fill instanceOf / instanceIndex from _trackInstanceLinks(program) on
+  // plan entries ({ stepId, instanceOf, instanceIndex }) that have none.
+  function _linkTrackInstances(program, entries) {
+    var links = _trackInstanceLinks(program);
+    (entries || []).forEach(function (e) {
+      var l = links[e.stepId];
+      if (l && !e.instanceOf) { e.instanceOf = l[0]; e.instanceIndex = l[1]; }
+    });
+    return entries;
+  }
+
+  function itinerary(program, opts) {
+    opts = opts || {};
+    var authored = program || {};
+    program = expandReplicates(authored);
+    var timingOpts = {};
+    if (opts.actual) timingOpts.actual = opts.actual;
+    if (typeof opts.now === 'number' && isFinite(opts.now)) timingOpts.now = opts.now;
+    var timings = computeStepTimings(program, timingOpts);
+
+    var makespan = 0;
+    Object.keys(timings).forEach(function (id) { makespan = Math.max(makespan, timings[id].end); });
+
+    var anchorStart = null;
+    var finishAt = _parseIsoDate(opts.finishAt);
+    var startAt = _parseIsoDate(opts.startAt);
+    if (finishAt) anchorStart = new Date(finishAt.getTime() - makespan * 1000);
+    else if (startAt) anchorStart = startAt;
+    function wall(sec) {
+      return anchorStart ? new Date(anchorStart.getTime() + sec * 1000).toISOString() : undefined;
+    }
+
+    // stepId -> { step, track }, built and walked exactly as analyzeSchedule
+    // does (a duplicate id keeps its first position and its last definition),
+    // so ties in the sort below come out in the same order.
+    var meta = {};
+    (Array.isArray(program && program.tracks) ? program.tracks : []).forEach(function (t) {
+      ((t && t.steps) || []).forEach(function (s) {
+        if (!s || typeof s !== 'object' || !s.stepId) return;
+        meta[s.stepId] = { step: s, track: t };
+      });
+    });
+
+    var out = Object.keys(meta).filter(function (id) { return !!timings[id]; }).map(function (id) {
+      var s = meta[id].step, t = meta[id].track, tm = timings[id];
+      var idx = Number(s.instanceIndex);
+      var entry = {
+        stepId: id,
+        name: s.name || id,
+        trackId: t.trackId,
+        trackName: t.name || t.trackId,
+        instanceOf: s.instanceOf || null,
+        instanceIndex: isFinite(idx) ? idx : null,
+        startSeconds: tm.start,
+        endSeconds: tm.end,
+        durationSeconds: tm.duration,
+        needsStart: stepNeedsStart(s),
+        needsFinish: stepNeedsFinish(s),
+        task: s.task || null
+      };
+      if (anchorStart) { entry.startAt = wall(tm.start); entry.endAt = wall(tm.end); }
+      return entry;
+    });
+    _linkTrackInstances(authored, out);
+    return out.sort(function (a, b) {
+      return a.startSeconds - b.startSeconds || a.name.localeCompare(b.name);
+    });
   }
 
   // ---------- SVG rendering ----------------------------------------------
@@ -1631,7 +1739,7 @@
   }
 
   return {
-    version: '2.0.0-beta.6',
+    version: '2.0.0-beta.7',
     // Program schema versions this engine understands; bumped in step
     // with the package's minor version when new trigger/duration forms
     // are added.
@@ -1644,12 +1752,14 @@
     computeStepTimings: computeStepTimings,
     actualFromRun: actualFromRun,
     timingsFromRun: timingsFromRun,
+    itinerary: itinerary,
     runtimeStepId: runtimeStepId,
     stepNeedsStart: stepNeedsStart,
     stepNeedsFinish: stepNeedsFinish,
     expandReplicates: expandReplicates,
     parseSeconds: parseSeconds,
     stepDurationSeconds: stepDurationSeconds,
-    instrumentEstimate: instrumentEstimate
+    instrumentEstimate: instrumentEstimate,
+    _linkTrackInstances: _linkTrackInstances
   };
 }));
