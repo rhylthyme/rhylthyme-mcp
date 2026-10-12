@@ -24,11 +24,12 @@
  *
  *   Rhylthyme.renderTimelineSvg(program, opts?)
  *       Pure: returns the SVG string. No DOM, no side effects.
- *       opts: { arrows, marks, legend } (all default true) — cross-track
+ *       opts: { arrows, marks } (default true) — cross-track
  *       dependency arrows (a fan-in over the instances of a replicated
  *       step is drawn as ONE arrowhead with a bar glyph: solid for an
  *       "all" barrier, dashed for "any"), indefinite/variable/manual step
- *       marks, legend.
+ *       marks; { legend } (default false) — the key explaining them,
+ *       true or a legend options object to draw it.
  *       Planned-vs-actual: { baseline, deviationThreshold } or the
  *       shorthand { run } — see below.
  *
@@ -979,12 +980,13 @@
     return [t];
   }
 
-  // opts: { arrows: true, marks: true, legend: true }
+  // opts: { arrows: true, marks: true, legend: false }
   //   arrows  — draw cross-track afterStep dependencies as elbow arrows
   //             (dashed when the offset is negative)
   //   marks   — hatch indefinite steps, fade variable steps from their
   //             default to their maximum, flag manual gates
-  //   legend  — one-line key under the chart
+  //   legend  — the key to the arrows and marks; off unless asked for:
+  //             true for the default key, or an options object (below)
   // Player options:
   //   timings — precomputed result of computeStepTimings (e.g. with actual
   //             times); default: computed here
@@ -1000,7 +1002,7 @@
   //             and the bar itself is outlined by the SIGN of its end
   //             deviation (actual end - planned end) and tagged
   //             data-deviation="early" | "late" | "on-time". Rows grow to
-  //             make room and the legend gains the four keys.
+  //             make room and the legend, when drawn, gains the four keys.
   //   deviationThreshold — seconds of end deviation inside which a step
   //             counts as on time (default 30)
   //   run     — a run record (rhylthyme-spec `runs` schema): shorthand for
@@ -1011,7 +1013,8 @@
   function renderTimelineSvg(program, opts) {
     program = expandReplicates(program || {});
     opts = opts || {};
-    var arrows = opts.arrows !== false, marks = opts.marks !== false, legend = opts.legend !== false;
+    var arrows = opts.arrows !== false, marks = opts.marks !== false;
+    var legend = opts.legend === true || !!(opts.legend && typeof opts.legend === 'object');
     var look = STYLES[opts.style] || STYLES.classic;
     var classic = !!look.classic;
     var legendOpts = (opts.legend && typeof opts.legend === 'object') ? opts.legend : {};
