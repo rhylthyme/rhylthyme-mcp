@@ -76,6 +76,7 @@ const EVENTS_BASE = "https://events.rhylthyme.com";
 const GYM_BASE = "https://gym.rhylthyme.com";
 
 const FETCH_TIMEOUT_MS = 15000;
+const IMPORT_ENRICH_TIMEOUT_MS = 115000;
 
 // ---------------------------------------------------------------------
 // Vertical configuration. One row per MCP endpoint; the generic row
@@ -1854,7 +1855,9 @@ function registerImportFromSource(server, vertical) {
           url = `${API_BASE}/api/import/random`;
           options = { method: "POST", headers: authHeader, body: JSON.stringify({ source }) };
         }
-        const resp = await fetch(url, fetchOpts(options, 30000));
+        // An enriched import adds model calls (bounded at 85 s by the
+        // server): wait for them, just under the server function's 120 s.
+        const resp = await fetch(url, fetchOpts(options, action === "import" && enrich ? IMPORT_ENRICH_TIMEOUT_MS : 30000));
         if (!resp.ok) return apiError(`Import ${action} failed`, resp, await readErrorBody(resp));
         const data = await resp.json();
         if (data && data.error) return errorResult(`Import ${action} failed: ${data.error}`);
