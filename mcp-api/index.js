@@ -314,13 +314,13 @@ const LONG_DESC = {
   },
   import_from_source: {
     generic:
-      "Import a recipe or lab protocol from an external source into a Rhylthyme program. Sources: spoonacular (recipes, preferred), themealdb (recipes, fallback), protocolsio (lab protocols), cooklang (.cook recipe URL — action must be 'import', query is the URL; GitHub blob URLs are auto-converted), opentrons (Opentrons Protocol API v2 .py — pass URL as query, or paste source via text; action must be 'import'), benchling (the user's connected library). Actions: search (no login needed), import and random (need the user's Rhylthyme token from **login**). After import, run the returned program through **visualize_schedule**. Pass `enrich: true` with action='import' to split the import into parallel tracks with cross-track triggers (one model call, capped per day; inferred steps are marked `metadata.inferred`).",
+      "Import a recipe or lab protocol from an external source into a Rhylthyme program. Sources: spoonacular (recipes, preferred), themealdb (recipes, fallback), protocolsio (lab protocols), cooklang (.cook recipe URL — action must be 'import', query is the URL; GitHub blob URLs are auto-converted), opentrons (Opentrons Protocol API v2 .py — pass URL as query, or paste source via text; action must be 'import'), ontime (an Ontime run of show — paste the project JSON or the rundown table as CSV/TSV/Markdown via text, or pass its public URL or a Google Sheet share link as query; action must be 'import'), benchling (the user's connected library). Actions: search (no login needed), import and random (need the user's Rhylthyme token from **login**). After import, run the returned program through **visualize_schedule**. Pass `enrich: true` with action='import' to split the import into parallel tracks with cross-track triggers (one model call, capped per day; inferred steps are marked `metadata.inferred`).",
     kitchen:
       "Import a recipe from a URL or recipe source into a cookable Rhylthyme program. Use when the user shares a recipe link, says 'turn this URL into a timeline', or asks for a recipe from a specific service. Sources: spoonacular (preferred — high quality, structured ingredients), themealdb (free fallback), cooklang (.cook files from any URL including GitHub blob URLs — pass URL as query, action='import'). Actions: search (find candidates; no login), import (URL/id → program JSON; needs `token` from **login**), random (needs `token`). After import, pass the returned program to **visualize_schedule** so the user can start cooking. Pass `enrich: true` with action='import' to split the import into parallel tracks with cross-track triggers (one model call, capped per day; inferred steps are marked `metadata.inferred`).",
     lab:
       "Import a lab protocol from an external source into a runnable Rhylthyme program. Use when the user pastes a protocols.io link, an Opentrons Protocol API .py file, a Benchling protocol URL, or a published method they want timed at the bench. Sources: benchling (the user's connected Benchling library — supports action='search' with `query`, then action='import' with the protocol id or URL), protocolsio (protocols.io URL or id), opentrons (Opentrons Protocol API v2 .py — pass URL as query, or paste source via text; action='import'). Actions: search, import, random (random not supported for benchling). import/random and anything Benchling need the user's Rhylthyme access token via `token` (from **login**). After import, pass the returned program to **visualize_schedule** so the user can start the experiment. Pass `enrich: true` with action='import' to split the import into parallel tracks with cross-track triggers (one model call, capped per day; inferred steps are marked `metadata.inferred`).",
     events:
-      "Import an event template into a Rhylthyme program. The catalog leans toward recipe/protocol sources (no dedicated event-template source today), so this tool is mostly useful for power-users who want to seed an event run-of-show from a recipe-style schedule. import/random need the user's token from **login**. Most planners build from scratch with **validate_program** + **visualize_schedule** instead.",
+      "Import a run of show from Ontime (getontime.no) into a Rhylthyme program. Use when the user has an Ontime project or rundown: source='ontime', action='import', and either `text` (the project file's JSON, or the rundown table pasted as CSV, TSV or Markdown with Ontime's columns: time start, time end, duration, cue, title, note, link start, skip, timer type) or `query` (a public URL to the JSON or CSV, or a Google Sheet share link). Each Ontime group becomes a track and each event a step at its clock time; cues, notes and custom fields are kept in step metadata. Needs the user's token from **login**. After import, pass the program to **visualize_schedule**. With no Ontime rundown, planners build from scratch with **validate_program** + **visualize_schedule**, or paste their run sheet into **import_text**.",
     gym:
       "Import a workout from an external source into a Rhylthyme program. The catalog leans toward recipe/protocol sources (no dedicated workout source today), so this tool is mostly a power-user fallback. import/random need the user's token from **login**. Most lifters build a workout from scratch with **validate_program** + **visualize_schedule** instead, or pick one with **start_workout**.",
   },
@@ -519,7 +519,7 @@ const SHORT = {
   get_renderer_source: () =>
     "Return the open-source timeline renderer's JavaScript (Apache-2.0, about 90 KB, no dependencies) for an HTML page or artifact that cannot load external scripts; it defines Rhylthyme.renderTimeline(container, program).",
   import_from_source: () =>
-    "Import a recipe or protocol from a URL or service into a program. source: spoonacular, themealdb (recipes); protocolsio, opentrons, benchling (lab); cooklang (.cook URL). action: search (no account needed), import (query = URL or id), random. import, random and benchling need the user's Rhylthyme account. `enrich: true` splits an import into parallel tracks. Returns the program.",
+    "Import a recipe, protocol or run of show into a program. source: spoonacular, themealdb (recipes); protocolsio, opentrons, benchling (lab); cooklang (.cook URL); ontime (run of show). action: search (no account needed), import (query = URL or id), random. import, random and benchling need the user's Rhylthyme account. `enrich: true` splits an import into parallel tracks. Returns the program.",
   import_text: (w) =>
     `Turn pasted text (a ${w.item === "program" ? "recipe, protocol, run sheet or training plan" : w.item}) into a validated multi-track program on the server, in four model turns, with a table of the source span each step came from. Capped per day. ${ACCOUNT}`,
   create_environment: () =>
@@ -605,7 +605,7 @@ const TOOL_ARGUMENT_NOTES = {
     "- `since`: only runs started on or after this date (YYYY-MM-DD or ISO).",
     "- `accept`: step ids, or `\"all\"`. The result then also carries the calibrated program with `calibratedFrom` beside each written duration. Nothing is saved either way.",
   ].join("\n"),
-  import_from_source: "**`enrich`.** Runs the relationship turn of the plan_schedule prompt server-side against the imported step list: steps, durations and resources are kept as imported, tracks and start triggers are inferred, and any step the model adds is marked `metadata.inferred`. Costs a model call and is capped per day; if it fails you still get the plain import.",
+  import_from_source: "**`ontime`.** An Ontime run of show: the project file's JSON, or the rundown table (CSV, TSV or Markdown with Ontime's columns: time start, time end, duration, cue, title, note), as `text`; or a public URL to either, or a Google Sheet share link, as `query`. Each group becomes a track and each event a step at its clock time.\n\n**`enrich`.** Runs the relationship turn of the plan_schedule prompt server-side against the imported step list: steps, durations and resources are kept as imported, tracks and start triggers are inferred, and any step the model adds is marked `metadata.inferred`. Costs a model call and is capped per day; if it fails you still get the plain import.",
   import_text: "**Arguments.** `text`: all of the source, as written; a long source is extracted in chunks. `environmentType`: kitchen, lab, events, gym or generic. `deadline`: when everything must be finished, in the user's words or ISO. `hints`: equipment and people limits in the user's words, e.g. 'one oven, two burners, one cook'.",
 };
 
@@ -1718,7 +1718,7 @@ function registerImportFromSource(server, vertical) {
       description: DESC.import_from_source[vertical],
       inputSchema: {
         source: z.enum([
-          "themealdb", "protocolsio", "spoonacular", "cooklang", "opentrons", "benchling",
+          "themealdb", "protocolsio", "spoonacular", "cooklang", "opentrons", "ontime", "benchling",
           // Pasted free text with no structure to read. `action` must be
           // 'import' and the text goes in `text`; the dedicated
           // **import_text** tool is the better door for it (it takes the
@@ -1729,7 +1729,7 @@ function registerImportFromSource(server, vertical) {
         ]),
         action: z.enum(["search", "import", "random"]),
         query: z.string().optional().describe("Keywords (search), or the URL or id (import)."),
-        text: z.string().optional().describe("Pasted source (an Opentrons .py) instead of a URL."),
+        text: z.string().optional().describe("Pasted source instead of a URL: an Opentrons .py, or an Ontime project JSON or rundown table (CSV, TSV or Markdown)."),
         // A structural importer reads structure, not meaning, so it
         // yields one track chained head-to-tail. `enrich` sends that step
         // list through turn 4 of the plan_schedule prompt server-side --
