@@ -324,7 +324,11 @@ cd rhylthyme-mcp
 npm install            # Node 20 or newer
 npm test                 # SDK in-memory + HTTP entry-point tests, no network
 PORT=3000 npm start      # http://localhost:3000/mcp and the four vertical paths
+npm run stdio            # the same server over stdio (add kitchen, lab, events or gym)
 ```
+
+Stdio clients run it as a local process, for example in Claude Desktop:
+`{"command": "node", "args": ["/path/to/rhylthyme-mcp/src/stdio.js"]}`.
 
 Docker: `docker build -t rhylthyme-mcp . && docker run -p 3000:3000 rhylthyme-mcp`.
 Vercel: `vercel` in the repository root; `vercel.json` rewrites the endpoint
@@ -345,6 +349,7 @@ those still depend on the hosted service. The PNG preview route
 - `static/js/timeline-render.js`: timing engine and SVG Gantt (also published as [`@rhylthyme/timeline`](https://github.com/rhylthyme/rhylthyme-timeline))
 - `static/schema/`, `static/examples/`: the resources
 - `src/index.js`: standalone HTTP runner
+- `src/stdio.js`: standalone stdio runner (same tools, resources and prompts)
 - `mcp-api/server.json`: MCP registry manifest
 - `.claude-plugin/marketplace.json`, `plugins/rhylthyme/`: the Claude plugin marketplace and plugin (`claude plugin validate .`); the skill in it is a checked copy of `skills/rhylthyme` in [rhylthyme](https://github.com/rhylthyme/rhylthyme)
 - `python/`: the `rhylthyme-mcp` PyPI package, a stdio bridge to the hosted server (`cd python && PYTHONPATH=src pytest tests`)
