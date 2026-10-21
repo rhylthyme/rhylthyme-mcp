@@ -28,8 +28,9 @@ claude mcp add --transport http rhylthyme https://mcp.rhylthyme.com/mcp
 claude mcp add --transport http rhylthyme-kitchen https://mcp.rhylthyme.com/kitchen/mcp
 ```
 
-**Claude Desktop / claude.ai** — Settings → Connectors → *Add custom
-connector* → paste one of the URLs above. No OAuth screen: public tools
+**Claude Desktop / claude.ai** — Customize → Connectors, search for
+*Rhylthyme* and click Connect; for one of the other URLs above, Add → *Add
+custom connector* → paste the URL → Continue. No OAuth screen: public tools
 work immediately; run the `login` tool when you want to save to your own
 account.
 

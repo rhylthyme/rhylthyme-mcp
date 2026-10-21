@@ -185,15 +185,23 @@ claude mcp add --transport http rhylthyme https://mcp.rhylthyme.com/mcp
 claude mcp add --transport http rhylthyme-kitchen https://mcp.rhylthyme.com/kitchen/mcp
 ```
 
-**Claude Desktop / claude.ai**: Settings → Connectors → *Add custom
-connector* → paste one of the URLs above. Public tools work immediately;
+**Claude Desktop / claude.ai**: Customize → Connectors, search for
+*Rhylthyme* and click Connect. For one of the other URLs above: Customize →
+Connectors → Add → *Add custom connector* → paste the URL → Continue. Public tools work immediately;
 run `login` only to save to your own account.
 
 **Claude Code plugin** (the hosted server plus a skill that teaches Claude to
 author, validate and analyze schedules):
 
+These are two commands. Send the first on its own:
+
 ```
 /plugin marketplace add rhylthyme/rhylthyme-mcp
+```
+
+then, once it says the marketplace was added, the second:
+
+```
 /plugin install rhylthyme@rhylthyme
 ```
 

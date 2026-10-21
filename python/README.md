@@ -16,7 +16,7 @@ package**: connect to the URL.
 | `https://mcp.rhylthyme.com/events/mcp` | events |
 | `https://mcp.rhylthyme.com/gym/mcp` | workouts |
 
-- **Claude** (claude.ai, desktop, mobile): Settings → Connectors → Add custom connector → paste a URL.
+- **Claude** (claude.ai, desktop): Customize → Connectors → search for Rhylthyme → Connect, or Add → Add custom connector → paste a URL → Continue.
 - **ChatGPT**: Settings → Apps & Connectors → Advanced settings → Developer mode → create a connector with a URL.
 - **Claude Code**: `claude mcp add --transport http rhylthyme https://mcp.rhylthyme.com/mcp`
 - **Cursor** and others: `{ "mcpServers": { "rhylthyme": { "url": "https://mcp.rhylthyme.com/mcp" } } }`
