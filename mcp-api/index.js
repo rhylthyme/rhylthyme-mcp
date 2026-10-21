@@ -1760,8 +1760,8 @@ function registerImportFromSource(server, vertical) {
           return inputError(
             "Benchling import requires a Rhylthyme access token (call **login** first, " +
             "then pass the token back as the `token` argument). Benchling itself uses the " +
-            "API token the user stored at Rhylthyme → Settings → Benchling; this tool does NOT " +
-            "accept a Benchling token directly.",
+            "connection the user made at Rhylthyme → Edit profile → Benchling (Sign in with " +
+            "Benchling, or a pasted API token); this tool does NOT accept a Benchling token directly.",
           );
         }
         try {
