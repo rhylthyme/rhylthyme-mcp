@@ -3461,11 +3461,31 @@ module.exports = async function handler(req, res) {
   );
   if (lenientAccept) forwardHeaders.accept = "application/json, text/event-stream";
 
+  // Abort the web Request when the client goes away, and cap
+  // subscriptions/listen streams (open-ended by design in the SDK) well
+  // under the platform limit so the function ends cleanly.
+  const ac = new AbortController();
+  const onClose = (fn) => { if (typeof res.on === "function") res.on("close", fn); };
+  onClose(() => ac.abort());
+  let listenTimer;
+  if (req.method === "POST" && body) {
+    try {
+      const parsed = JSON.parse(body.toString("utf8"));
+      const msgs = Array.isArray(parsed) ? parsed : [parsed];
+      if (msgs.some((m) => m && m.method === "subscriptions/listen")) {
+        const capMs = Number(process.env.MCP_LISTEN_MAX_MS) || 120000;
+        listenTimer = setTimeout(() => ac.abort(), capMs);
+      }
+    } catch {
+      // Not JSON: the SDK rejects it.
+    }
+  }
   const webRequest = new Request(url, {
     method: req.method,
     headers: forwardHeaders,
     body: body,
     duplex: "half",
+    signal: ac.signal,
   });
 
   // Usage analytics (see analytics.js). Null when disabled or when the
@@ -3500,10 +3520,11 @@ module.exports = async function handler(req, res) {
     }
     if (webResponse.body) {
       const reader = webResponse.body.getReader();
+      onClose(() => { reader.cancel().catch(() => {}); });
       const pump = async () => {
         while (true) {
           const { done, value } = await reader.read();
-          if (done) { res.end(); break; }
+          if (done || res.destroyed) { if (!res.writableEnded) res.end(); break; }
           if (tracker) tracker.capture(value);
           res.write(value);
         }
@@ -3517,6 +3538,15 @@ module.exports = async function handler(req, res) {
       if (!Analytics.waitUntil(done)) await done;
     }
   } catch (e) {
+    if (ac.signal.aborted && res.headersSent) {
+      // Client left, or a listen stream reached its cap: end quietly.
+      if (!res.writableEnded) res.end();
+      if (tracker) {
+        const done = tracker.finish(res.statusCode);
+        if (!Analytics.waitUntil(done)) await done;
+      }
+      return;
+    }
     console.error("MCP handler error:", e);
     res.statusCode = 500;
     res.setHeader("Content-Type", "application/json");
@@ -3525,6 +3555,8 @@ module.exports = async function handler(req, res) {
       const done = tracker.finish(500);
       if (!Analytics.waitUntil(done)) await done;
     }
+  } finally {
+    clearTimeout(listenTimer);
   }
 };
 
