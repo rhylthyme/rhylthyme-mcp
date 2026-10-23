@@ -3297,6 +3297,50 @@ function detectVertical(reqUrl, hostHeader) {
 // pointing here.
 // ---------------------------------------------------------------------
 
+// Share id formats in use: 16 lowercase hex (database default) and 8
+// (older iOS / Android builds). Same check as get_shared_program().
+const SHARE_ID_RE = /^(?:[0-9a-f]{8}|[0-9a-f]{16})$/;
+
+function _anonSupabaseHeaders(extra) {
+  return Object.assign({
+    apikey: process.env.SUPABASE_ANON_KEY || "",
+    Authorization: `Bearer ${process.env.SUPABASE_ANON_KEY || ""}`,
+    Accept: "application/json",
+  }, extra || {});
+}
+
+// True when PostgREST answers that the function doesn't exist yet (the SQL
+// hasn't been applied): 404 with code PGRST202 (or no code at all).
+async function _rpcFunctionMissing(resp) {
+  if (resp.status !== 404) return false;
+  try {
+    const body = await resp.json();
+    return !body || !body.code || body.code === "PGRST202";
+  } catch (_) {
+    return true;
+  }
+}
+
+// One share by id. shared_programs can't be listed: anyone with the id reads
+// it through the get_shared_program RPC (0 or 1 rows). The direct table read
+// is the fallback only while that function is missing.
+async function _fetchSharedProgramRows(share) {
+  const resp = await fetch(
+    `${process.env.SUPABASE_URL}/rest/v1/rpc/get_shared_program`,
+    {
+      method: "POST",
+      headers: _anonSupabaseHeaders({ "Content-Type": "application/json" }),
+      body: JSON.stringify({ p_share_id: share }),
+      signal: AbortSignal.timeout(10000),
+    },
+  );
+  if (!(await _rpcFunctionMissing(resp))) return resp;
+  return fetch(
+    `${process.env.SUPABASE_URL}/rest/v1/shared_programs?share_id=eq.${encodeURIComponent(share)}&select=program_json&limit=1`,
+    { headers: _anonSupabaseHeaders(), signal: AbortSignal.timeout(10000) },
+  );
+}
+
 async function handleOgTimeline(req, res) {
   const u = new URL(req.url || "/", `https://${req.headers.host || "localhost"}`);
   const share = (u.searchParams.get("share") || "").trim();
@@ -3307,25 +3351,23 @@ async function handleOgTimeline(req, res) {
     res.end("share or program parameter required");
     return;
   }
+  if (share && !SHARE_ID_RE.test(share)) {
+    res.statusCode = 404;
+    res.setHeader("Content-Type", "text/plain");
+    res.end("program not found");
+    return;
+  }
 
-  // Look up the program JSON. shared_programs (one row per /api/share
+  // Look up the program JSON. A share link (one row per /api/share
   // creation) has the inline program; programs is the canonical catalog.
   let program;
   try {
-    const path = share
-      ? `shared_programs?share_id=eq.${encodeURIComponent(share)}&select=program_json&limit=1`
-      : `programs?id=eq.${encodeURIComponent(programId)}&is_public=eq.true&select=program_json&limit=1`;
-    const resp = await fetch(
-      `${process.env.SUPABASE_URL}/rest/v1/${path}`,
-      {
-        headers: {
-          apikey: process.env.SUPABASE_ANON_KEY || "",
-          Authorization: `Bearer ${process.env.SUPABASE_ANON_KEY || ""}`,
-          Accept: "application/json",
-        },
-        signal: AbortSignal.timeout(10000),
-      },
-    );
+    const resp = share
+      ? await _fetchSharedProgramRows(share)
+      : await fetch(
+        `${process.env.SUPABASE_URL}/rest/v1/programs?id=eq.${encodeURIComponent(programId)}&is_public=eq.true&select=program_json&limit=1`,
+        { headers: _anonSupabaseHeaders(), signal: AbortSignal.timeout(10000) },
+      );
     if (!resp.ok) {
       res.statusCode = 502;
       res.setHeader("Content-Type", "text/plain");
